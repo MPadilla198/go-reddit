@@ -19,22 +19,6 @@ type MessageService struct {
 	client *Client
 }
 
-// Message is a message.
-type Message struct {
-	ID      string     `json:"id"`
-	FullID  string     `json:"name"`
-	Created *Timestamp `json:"created_utc"`
-
-	Subject  string `json:"subject"`
-	Text     string `json:"body"`
-	ParentID string `json:"parent_id"`
-
-	Author string `json:"author"`
-	To     string `json:"dest"`
-
-	IsComment bool `json:"was_comment"`
-}
-
 type inboxThing struct {
 	Kind string   `json:"kind"`
 	Data *Message `json:"data"`
