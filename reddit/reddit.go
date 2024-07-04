@@ -250,21 +250,24 @@ func (c *Client) NewRequest(method string, path string, form url.Values) (*http.
 func (c *Client) NewJSONRequest(method string, path string, body interface{}) (*http.Request, error) {
 	u, err := c.BaseURL.Parse(path)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
 
 	buf := new(bytes.Buffer)
 	if body != nil {
 		err = json.NewEncoder(buf).Encode(body)
 		if err != nil {
-			return nil, err
+			return nil, &JSONError{
+				Message: err.Error(),
+				Data:    buf.Bytes(),
+			}
 		}
 	}
 
 	reqBody := bytes.NewReader(buf.Bytes())
 	req, err := http.NewRequest(method, u.String(), reqBody)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
 
 	c.appendJSONExtensionToRequestURLPath(req)
