@@ -30,10 +30,6 @@ const (
 	kindStyleSheet        = "stylesheet"
 )
 
-type anchor interface {
-	After() string
-}
-
 type Thing interface {
 	json.Unmarshaler
 	getID() string
@@ -58,9 +54,9 @@ func (t thing) getName() string {
 	return t.Name
 }
 
-// listing is a list of things coming from the Reddit API.
+// Listing is a list of things coming from the Reddit API.
 // It also contains the after anchor useful to get the next results via subsequent requests.
-type listing struct {
+type Listing struct {
 	After    string  `json:"after"`
 	Before   string  `json:"before"`
 	ModHash  string  `json:"modhash"`
@@ -68,7 +64,7 @@ type listing struct {
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface.
-func (l *listing) UnmarshalJSON(b []byte) error {
+func (l *Listing) UnmarshalJSON(b []byte) error {
 	err := json.Unmarshal(b, l)
 	if err != nil {
 		return &JSONError{
@@ -272,6 +268,20 @@ type Account struct {
 }
 
 func (a *Account) UnmarshalJSON(b []byte) error {
+	err := json.Unmarshal(b, a)
+	if err != nil {
+		return &JSONError{
+			Message: fmt.Sprintf("error during unmarshal: %s", err.Error()),
+			Data:    b}
+	}
+	return nil
+}
+
+type Award struct {
+	thing
+}
+
+func (a *Award) UnmarshalJSON(b []byte) error {
 	err := json.Unmarshal(b, a)
 	if err != nil {
 		return &JSONError{

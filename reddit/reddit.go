@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	libraryName    = "github.com/vartanbeno/go-reddit"
-	libraryVersion = "2.0.0"
+	libraryName    = "github.com/MPadilla198/go-reddit"
+	libraryVersion = "2.1.0"
 
 	defaultBaseURL         = "https://oauth.reddit.com"
 	defaultBaseURLReadonly = "https://reddit.com"
@@ -70,10 +70,7 @@ type Client struct {
 	rateMu sync.Mutex
 	rate   Rate
 
-	ID       string
-	Secret   string
-	Username string
-	Password string
+	Credentials
 
 	// This is the client's user ID in Reddit's database.
 	redditID string
@@ -149,7 +146,7 @@ func NewClient(credentials Credentials, opts ...Opt) (*Client, error) {
 
 	for _, opt := range opts {
 		if err := opt(client); err != nil {
-			return nil, err
+			return nil, &InternalError{Message: err.Error()}
 		}
 	}
 
@@ -160,7 +157,7 @@ func NewClient(credentials Credentials, opts ...Opt) (*Client, error) {
 	client.client.Transport = userAgentTransport
 
 	if client.client.CheckRedirect == nil {
-		client.client.CheckRedirect = client.redirect
+		// todo
 	}
 
 	oauthTransport := oauthTransport(client)
@@ -178,7 +175,7 @@ func NewReadonlyClient(opts ...Opt) (*Client, error) {
 
 	for _, opt := range opts {
 		if err := opt(client); err != nil {
-			return nil, err
+			return nil, &InternalError{Message: err.Error()}
 		}
 	}
 
@@ -193,23 +190,6 @@ func NewReadonlyClient(opts ...Opt) (*Client, error) {
 	client.client.Transport = userAgentTransport
 
 	return client, nil
-}
-
-// todo...
-// Some endpoints (notably the ones to get random subreddits/posts) redirect to a
-// reddit.com url, which returns a 403 Forbidden for some reason, unless the url's
-// host is changed to oauth.reddit.com
-func (c *Client) redirect(req *http.Request, via []*http.Request) error {
-	redirectURL := req.URL.String()
-	redirectURL = strings.Replace(redirectURL, "https://www.reddit.com", defaultBaseURL, 1)
-
-	reqURL, err := url.Parse(redirectURL)
-	if err != nil {
-		return err
-	}
-	req.URL = reqURL
-
-	return nil
 }
 
 // The readonly Reddit url needs .json at the end of its path to return responses in JSON instead of HTML.
@@ -244,7 +224,7 @@ func (c *Client) UserAgent() string {
 func (c *Client) NewRequest(method string, path string, form url.Values) (*http.Request, error) {
 	u, err := c.BaseURL.Parse(path)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
 
 	var body io.Reader
@@ -254,7 +234,7 @@ func (c *Client) NewRequest(method string, path string, form url.Values) (*http.
 
 	req, err := http.NewRequest(method, u.String(), body)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
 
 	c.appendJSONExtensionToRequestURLPath(req)
@@ -294,28 +274,6 @@ func (c *Client) NewJSONRequest(method string, path string, body interface{}) (*
 	return req, nil
 }
 
-// Response is a Reddit response. This wraps the standard http.Response returned from Reddit.
-type Response struct {
-	*http.Response
-
-	// Pagination anchor indicating there are more results after this id.
-	After string
-
-	// Rate limit information.
-	Rate Rate
-}
-
-// newResponse creates a new Response for the provided http.Response.
-func newResponse(r *http.Response) *Response {
-	response := Response{Response: r}
-	response.Rate = parseRate(r)
-	return &response
-}
-
-func (r *Response) populateAnchors(a anchor) {
-	r.After = a.After()
-}
-
 // parseRate parses the rate related headers.
 func parseRate(r *http.Response) Rate {
 	var rate Rate
@@ -337,54 +295,60 @@ func parseRate(r *http.Response) Rate {
 // Do sends an API request and returns the API response. The API response is JSON decoded and stored in the value
 // pointed to by v, or returned as an error if an API error has occurred. If v implements the io.Writer interface,
 // the raw response will be written to v, without attempting to decode it.
-func (c *Client) Do(ctx context.Context, req *http.Request, v interface{}) (*Response, error) {
+func (c *Client) Do(ctx context.Context, req *http.Request, v interface{}) (*http.Response, error) {
 	if err := c.checkRateLimitBeforeDo(req); err != nil {
-		return &Response{
-			Response: err.Response,
-			Rate:     err.Rate,
-		}, err
+		return nil, err
 	}
 
 	resp, err := DoRequestWithClient(ctx, c.client, req)
 	if err != nil {
-		return nil, err
+		return nil, &ResponseError{Message: err.Error(), Response: resp}
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		if err := Body.Close(); err != nil {
+		}
+	}(resp.Body)
 
 	if c.onRequestCompleted != nil {
 		c.onRequestCompleted(req, resp)
 	}
 
-	response := newResponse(resp)
+	rate := parseRate(resp)
 
 	c.rateMu.Lock()
-	c.rate = response.Rate
+	c.rate = rate
 	c.rateMu.Unlock()
 
-	err = CheckResponse(resp)
-	if err != nil {
-		return response, err
+	if err = CheckResponse(resp); err != nil {
+		return nil, err
 	}
 
 	if v != nil {
 		if w, ok := v.(io.Writer); ok {
-			_, err = io.Copy(w, response.Body)
-			if err != nil {
-				return response, err
+			if _, err = io.Copy(w, resp.Body); err != nil {
+				return nil, &InternalError{
+					Message: err.Error(),
+				}
 			}
 		} else {
-			err = json.NewDecoder(response.Body).Decode(v)
+			err = json.NewDecoder(resp.Body).Decode(v)
 			if err != nil {
-				return response, err
+				data := make([]byte, resp.ContentLength)
+				if _, err = resp.Body.Read(data); err != nil {
+					return nil, &JSONError{
+						Message: err.Error(),
+						Data:    data,
+					}
+				}
+				return nil, &JSONError{
+					Message: err.Error(),
+					Data:    data,
+				}
 			}
-		}
-
-		if anchor, ok := v.(anchor); ok {
-			response.populateAnchors(anchor)
 		}
 	}
 
-	return response, nil
+	return resp, nil
 }
 
 func (c *Client) checkRateLimitBeforeDo(req *http.Request) *RateLimitError {
@@ -402,17 +366,18 @@ func (c *Client) checkRateLimitBeforeDo(req *http.Request) *RateLimitError {
 			Body:       ioutil.NopCloser(strings.NewReader("")),
 		}
 		return &RateLimitError{
-			Rate:     rate,
-			Response: resp,
-			Message:  fmt.Sprintf("API rate limit still exceeded until %s, not making remote request.", rate.Reset),
+			Rate: rate,
+			ResponseError: ResponseError{
+				Response: resp,
+				Message:  fmt.Sprintf("API rate limit still exceeded until %s, not making remote request.", rate.Reset)},
 		}
 	}
 
 	return nil
 }
 
-// id returns the client's Reddit ID.
-func (c *Client) id(ctx context.Context) (string, *Response, error) {
+// ID returns the client's Reddit ID.
+func (c *Client) getID(ctx context.Context) (string, *http.Response, error) {
 	if c.redditID != "" {
 		return c.redditID, nil, nil
 	}
@@ -422,13 +387,8 @@ func (c *Client) id(ctx context.Context) (string, *Response, error) {
 		return "", resp, err
 	}
 
-	c.redditID = fmt.Sprintf("%s_%s", kindUser, self.ID)
+	c.redditID = fmt.Sprintf("%s_%s", kindAccount, self.ID)
 	return c.redditID, resp, nil
-}
-
-// DoRequest submits an HTTP request.
-func DoRequest(ctx context.Context, req *http.Request) (*http.Response, error) {
-	return DoRequestWithClient(ctx, http.DefaultClient, req)
 }
 
 // DoRequestWithClient submits an HTTP request using the specified client.
@@ -442,41 +402,25 @@ func DoRequestWithClient(ctx context.Context, client *http.Client, req *http.Req
 // Reddit also sometimes sends errors with 200 codes; we check for those too.
 func CheckResponse(r *http.Response) error {
 	if r.Header.Get(headerRateLimitRemaining) == "0" {
-		err := &RateLimitError{
-			Rate:     parseRate(r),
-			Response: r,
+		rate := parseRate(r)
+		return &RateLimitError{
+			Rate: rate,
+			ResponseError: ResponseError{
+				Response: r,
+				Message:  fmt.Sprintf("API rate limit has been exceeded until %s.", rate.Reset)},
 		}
-		err.Message = fmt.Sprintf("API rate limit has been exceeded until %s.", err.Rate.Reset)
-		return err
 	}
-
-	jsonErrorResponse := &JSONErrorResponse{Response: r}
 
 	data, err := ioutil.ReadAll(r.Body)
-	if err == nil && len(data) > 0 {
-		json.Unmarshal(data, jsonErrorResponse)
-		if len(jsonErrorResponse.JSON.Errors) > 0 {
-			return jsonErrorResponse
-		}
+	if err == nil {
+		return &JSONError{Message: err.Error(), Data: data}
 	}
 
-	// reset response body
-	r.Body = ioutil.NopCloser(bytes.NewBuffer(data))
-
-	if c := r.StatusCode; c >= 200 && c <= 299 {
+	if c := r.StatusCode; c == 200 {
 		return nil
 	}
 
-	errorResponse := &ErrorResponse{Response: r}
-	data, err = ioutil.ReadAll(r.Body)
-	if err == nil && len(data) > 0 {
-		err := json.Unmarshal(data, errorResponse)
-		if err != nil {
-			errorResponse.Message = string(data)
-		}
-	}
-
-	return errorResponse
+	return &ResponseError{Response: r, Message: err.Error()}
 }
 
 // Rate represents the rate limit for the client.
@@ -489,9 +433,7 @@ type Rate struct {
 	Reset time.Time `json:"reset"`
 }
 
-// A lot of Reddit's responses return a "thing": { "kind": "...", "data": {...} }
-// So this is just a nice convenient method to have.
-func (c *Client) getThing(ctx context.Context, path string, opts interface{}) (*thing, *Response, error) {
+func (c *Client) getListing(ctx context.Context, path string, opts interface{}) (*Listing, *http.Response, error) {
 	path, err := addOptions(path, opts)
 	if err != nil {
 		return nil, nil, err
@@ -502,102 +444,310 @@ func (c *Client) getThing(ctx context.Context, path string, opts interface{}) (*
 		return nil, nil, err
 	}
 
-	t := new(thing)
-	resp, err := c.Do(ctx, req, t)
+	list := new(Listing)
+	resp, err := c.Do(ctx, req, list)
 	if err != nil {
-		return nil, resp, err
+		return nil, nil, err
 	}
 
-	return t, resp, nil
+	return list, resp, nil
 }
 
-func (c *Client) getListing(ctx context.Context, path string, opts interface{}) (*listing, *Response, error) {
-	t, resp, err := c.getThing(ctx, path, opts)
+func (c *Client) getComment(ctx context.Context, path string, opts interface{}) (*Comment, *http.Response, error) {
+	path, err := addOptions(path, opts)
 	if err != nil {
-		return nil, resp, err
+		return nil, nil, err
 	}
-	l, _ := t.Listing()
-	return l, resp, nil
+
+	req, err := c.NewRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	comment := new(Comment)
+	resp, err := c.Do(ctx, req, comment)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return comment, resp, nil
 }
 
-// ListOptions specifies the optional parameters to various API calls that return a listing.
-type ListOptions struct {
+func (c *Client) getLink(ctx context.Context, path string, opts interface{}) (*Link, *http.Response, error) {
+	path, err := addOptions(path, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	req, err := c.NewRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	link := new(Link)
+	resp, err := c.Do(ctx, req, link)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return link, resp, nil
+}
+
+func (c *Client) getSubreddit(ctx context.Context, path string, opts interface{}) (*Subreddit, *http.Response, error) {
+	path, err := addOptions(path, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	req, err := c.NewRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	subreddit := new(Subreddit)
+	resp, err := c.Do(ctx, req, subreddit)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return subreddit, resp, nil
+}
+
+func (c *Client) getMessage(ctx context.Context, path string, opts interface{}) (*Message, *http.Response, error) {
+	path, err := addOptions(path, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	req, err := c.NewRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	message := new(Message)
+	resp, err := c.Do(ctx, req, message)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return message, resp, nil
+}
+
+func (c *Client) getAccount(ctx context.Context, path string, opts interface{}) (*Account, *http.Response, error) {
+	path, err := addOptions(path, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	req, err := c.NewRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	account := new(Account)
+	resp, err := c.Do(ctx, req, account)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return account, resp, nil
+}
+
+func (c *Client) getAward(ctx context.Context, path string, opts interface{}) (*Award, *http.Response, error) {
+	path, err := addOptions(path, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	req, err := c.NewRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	award := new(Award)
+	resp, err := c.Do(ctx, req, award)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return award, resp, nil
+}
+
+func (c *Client) getMore(ctx context.Context, path string, opts interface{}) (*More, *http.Response, error) {
+	path, err := addOptions(path, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	req, err := c.NewRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	more := new(More)
+	resp, err := c.Do(ctx, req, more)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return more, resp, nil
+}
+
+// ListingOptions specifies the optional parameters to various API calls that return a listing.
+type ListingOptions struct {
 	// Maximum number of items to be returned.
 	// Generally, the default is 25 and max is 100.
 	Limit int `url:"limit,omitempty"`
-
 	// The full ID of an item in the listing to use
 	// as the anchor point of the list. Only items
 	// appearing after it will be returned.
 	After string `url:"after,omitempty"`
-
 	// The full ID of an item in the listing to use
 	// as the anchor point of the list. Only items
 	// appearing before it will be returned.
-	Before string `url:"before,omitempty"`
+	Before   string `url:"before,omitempty"`
+	Count    int    `url:"count,omitempty"`
+	Show     string `url:"show,omitempty"`
+	SrDetail bool   `url:"sr_detail,omitempty"`
+	Name     string `url:"name,omitempty"`
 }
 
-// ListSubredditOptions defines possible options used when searching for subreddits.
-type ListSubredditOptions struct {
-	ListOptions
-	// One of: relevance, activity.
-	Sort string `url:"sort,omitempty"`
+type ListingDuplicateOptions struct {
+	ListingOptions
+
+	Article        string `url:"article,omitempty"`
+	CrosspostsOnly bool   `url:"crossposts_only,omitempty"`
+	Sort           string `url:"sort,omitempty"`
+	SubredditName  string `url:"sr,omitempty"`
 }
 
-// ListPostOptions defines possible options used when getting posts from a subreddit.
-type ListPostOptions struct {
-	ListOptions
-	// One of: hour, day, week, month, year, all.
-	Time string `url:"t,omitempty"`
+// ListingSubredditOptions defines possible options used when searching for subreddits.
+type ListingSubredditOptions struct {
+	ListingOptions
+	// G is one of (GLOBAL, US, AR, AU, BG, CA, CL, CO, HR, CZ, FI, FR, DE, GR, HU, IS, IN, IE, IT, JP, MY, MX, NZ, PH, PL, PT, PR, RO, RS, SG, ES, SE, TW, TH, TR, GB, US_WA, US_DE, US_DC, US_WI, US_WV, US_HI, US_FL, US_WY, US_NH, US_NJ, US_NM, US_TX, US_LA, US_NC, US_ND, US_NE, US_TN, US_NY, US_PA, US_CA, US_NV, US_VA, US_CO, US_AK, US_AL, US_AR, US_VT, US_IL, US_GA, US_IN, US_IA, US_OK, US_AZ, US_ID, US_CT, US_ME, US_MD, US_MA, US_OH, US_UT, US_MO, US_MN, US_MI, US_RI, US_KS, US_MT, US_MS, US_SC, US_KY, US_OR, US_SD)
+	// only for GET [/r/subreddit]/hot
+	G string `url:"g,omitempty"`
+	// T is one of (hour, day, week, month, year, all)
+	// only for GET [/r/subreddit]/sort → [/r/subreddit]/top and [/r/subreddit]/controversial
+	T string `url:"t,omitempty"`
+	// User is a valid, existing reddit username
+	// only for GET [/r/subreddit]/about/where
+	//→ [/r/subreddit]/about/banned
+	//→ [/r/subreddit]/about/muted
+	//→ [/r/subreddit]/about/wikibanned
+	//→ [/r/subreddit]/about/contributors
+	//→ [/r/subreddit]/about/wikicontributors
+	//→ [/r/subreddit]/about/moderators
+	User string `url:"user,omitempty"`
+
+	// Q is a search query
+	// only for GET /subreddits/search and GET /users/search
+	Q string `url:"q,omitempty"`
+	// SearchQueryID is a uuid
+	// only for GET /subreddits/search and GET /users/search
+	SearchQueryID string `url:"search_query_id,omitempty"`
+	// ShowUsers is
+	// only for GET /subreddits/search
+	ShowUsers bool `url:"show_users,omitempty"`
+	// TypeaheadActive is
+	// only for GET /subreddits/search and GET /users/search
+	TypeaheadActive *bool `url:"typeahead_active,omitempty"`
 }
 
-// ListPostSearchOptions defines possible options used when searching for posts within a subreddit.
-type ListPostSearchOptions struct {
-	ListPostOptions
-	// One of: relevance, hot, top, new, comments.
-	Sort string `url:"sort,omitempty"`
+// ListingLiveOptions defines possible options used when searching for subreddits, only for GET /live/thread
+type ListingLiveOptions struct {
+	ListingOptions
+	// Stylesr is a subreddit name
+	// only for GET /live/thread
+	Stylesr string `url:"stylesr,omitempty"`
 }
 
-// ListUserOverviewOptions defines possible options used when getting a user's post and/or comments.
-type ListUserOverviewOptions struct {
-	ListOptions
-	// One of: hot, new, top, controversial.
-	Sort string `url:"sort,omitempty"`
-	// One of: hour, day, week, month, year, all.
-	Time string `url:"t,omitempty"`
+// ListingMessageOptions , only for GET /message/where → /message/inbox , /message/unread , /message/sent
+type ListingMessageOptions struct {
+	ListingOptions
+
+	Mark       bool   `url:"mark,omitempty"`
+	MaxReplies int    `url:"max_replies,omitempty"`
+	Mid        string `url:"mid,omitempty"`
 }
 
-// ListDuplicatePostOptions defines possible options used when getting duplicates of a post, i.e.
-// other submissions of the same URL.
-type ListDuplicatePostOptions struct {
-	ListOptions
-	// If empty, it'll search for duplicates in all subreddits.
-	Subreddit string `url:"sr,omitempty"`
-	// One of: num_comments, new.
-	Sort string `url:"sort,omitempty"`
-	// If true, the search will only return duplicates that are
-	// crossposts of the original post.
-	CrosspostsOnly bool `url:"crossposts_only,omitempty"`
-}
+// ListingModerationOptions defines possible options used when getting moderation actions in a subreddit.
+type ListingModerationOptions struct {
+	ListingOptions
 
-// ListModActionOptions defines possible options used when getting moderation actions in a subreddit.
-type ListModActionOptions struct {
-	// The max for the limit parameter here is 500.
-	ListOptions
-	// If empty, the search will return all action types.
-	// One of: banuser, unbanuser, spamlink, removelink, approvelink, spamcomment, removecomment,
-	// approvecomment, addmoderator, showcomment, invitemoderator, uninvitemoderator, acceptmoderatorinvite,
-	// removemoderator, addcontributor, removecontributor, editsettings, editflair, distinguish, marknsfw,
-	// wikibanned, wikicontributor, wikiunbanned, wikipagelisted, removewikicontributor, wikirevise,
-	// wikipermlevel, ignorereports, unignorereports, setpermissions, setsuggestedsort, sticky, unsticky,
-	// setcontestmode, unsetcontestmode, lock, unlock, muteuser, unmuteuser, createrule, editrule,
-	// reorderrules, deleterule, spoiler, unspoiler, modmail_enrollment, community_styling, community_widgets,
-	// markoriginalcontent, collections, events, hidden_award, add_community_topics, remove_community_topics,
-	// create_scheduled_post, edit_scheduled_post, delete_scheduled_post, submit_scheduled_post,
-	// edit_post_requirements, invitesubscriber, submit_content_rating_survey.
-	Type string `url:"type,omitempty"`
-	// If provided, only return the actions of this moderator.
+	// Moderator is a specified mod filter
+	// only for GET [/r/subreddit]/about/log
 	Moderator string `url:"mod,omitempty"`
+	// Type is one of (banuser, unbanuser, spamlink, removelink, approvelink, spamcomment, removecomment, approvecomment, addmoderator, showcomment, invitemoderator, uninvitemoderator, acceptmoderatorinvite, removemoderator, addcontributor, removecontributor, editsettings, editflair, distinguish, marknsfw, wikibanned, wikicontributor, wikiunbanned, wikipagelisted, removewikicontributor, wikirevise, wikipermlevel, ignorereports, unignorereports, setpermissions, setsuggestedsort, sticky, unsticky, setcontestmode, unsetcontestmode, lock, unlock, muteuser, unmuteuser, createrule, editrule, reorderrules, deleterule, spoiler, unspoiler, modmail_enrollment, community_status, community_styling, community_welcome_page, community_widgets, markoriginalcontent, collections, events, hidden_award, add_community_topics, remove_community_topics, create_scheduled_post, edit_scheduled_post, delete_scheduled_post, submit_scheduled_post, edit_comment_requirements, edit_post_requirements, invitesubscriber, submit_content_rating_survey, adjust_post_crowd_control_level, enable_post_crowd_control_filter, disable_post_crowd_control_filter, deleteoverriddenclassification, overrideclassification, reordermoderators, snoozereports, unsnoozereports, addnote, deletenote, addremovalreason, createremovalreason, updateremovalreason, deleteremovalreason, reorderremovalreason, dev_platform_app_changed, dev_platform_app_disabled, dev_platform_app_enabled, dev_platform_app_installed, dev_platform_app_uninstalled, edit_saved_response, chat_approve_message, chat_remove_message, chat_ban_user, chat_unban_user, chat_invite_host, chat_remove_host, approve_award)
+	// only for GET [/r/subreddit]/about/log
+	Type string `url:"type,omitempty"`
+
+	// Location is
+	// only for GET [/r/subreddit]/about/locationread
+	//→ [/r/subreddit]/about/reports
+	//→ [/r/subreddit]/about/spam
+	//→ [/r/subreddit]/about/modqueue
+	//→ [/r/subreddit]/about/unmoderated
+	//→ [/r/subreddit]/about/edited
+	Location string `url:"location,omitempty"`
+	// Only is one of (links, comments, chat_comments)
+	// only for GET [/r/subreddit]/about/locationread
+	//→ [/r/subreddit]/about/reports
+	//→ [/r/subreddit]/about/spam
+	//→ [/r/subreddit]/about/modqueue
+	//→ [/r/subreddit]/about/unmoderated
+	//→ [/r/subreddit]/about/edited
+	Only string `url:"only,omitempty"`
+}
+
+// ListingSearchOptions defines possible options used when searching for posts within a subreddit.
+// only for GET [/r/subreddit]/search
+type ListingSearchOptions struct {
+	ListingOptions
+	// Category is a string no longer than 5 characters
+	Category      string `url:"category,omitempty"`
+	IncludeFacets bool   `url:"include_facets,omitempty"`
+	// Q is a string no longer than 512 characters
+	Q                 string `url:"q,omitempty"`
+	RestrictSubreddit bool   `url:"restrict_sr,omitempty"`
+	// Sort is one of (relevance, hot, top, new, comments)
+	Sort string `url:"sort,omitempty"`
+	// T is one of (hour, day, week, month, year, all)
+	T string `url:"t,omitempty"`
+	// Type is (optional) comma-delimited list of result types (sr, link, user)
+	Type string `url:"type,omitempty"`
+}
+
+// ListingUserOptions is
+// only for GET /user/username/where
+// → /user/username/overview
+// → /user/username/submitted
+// → /user/username/comments
+// → /user/username/upvoted
+// → /user/username/downvoted
+// → /user/username/hidden
+// → /user/username/saved
+// → /user/username/gilded
+type ListingUserOptions struct {
+	ListingOptions
+	// Context is an integer between 2 and 10
+	Context int `url:"context,omitempty"`
+	// Sort is one of (hot, new, top, controversial)
+	Sort string `url:"sort,omitempty"`
+	// T is one of (hour, day, week, month, year, all)
+	T string `url:"t,omitempty"`
+	// Type is one of (links, comments)
+	Type string `url:"type,omitempty"`
+	// Username is the name of an existing user
+	Username string `url:"username,omitempty"`
+}
+
+// ListingWikiOptions is
+// only for GET [/r/subreddit]/wiki/discussions/page and GET [/r/subreddit]/wiki/revisions/page
+type ListingWikiOptions struct {
+	ListingOptions
+	// Page is the name of an existing wiki page
+	Page string `url:"page"`
 }
 
 func addOptions(s string, opt interface{}) (string, error) {
@@ -608,14 +758,14 @@ func addOptions(s string, opt interface{}) (string, error) {
 
 	origURL, err := url.Parse(s)
 	if err != nil {
-		return s, err
+		return s, &InternalError{Message: err.Error()}
 	}
 
 	origValues := origURL.Query()
 
 	newValues, err := query.Values(opt)
 	if err != nil {
-		return s, err
+		return s, &InternalError{Message: err.Error()}
 	}
 
 	for k, v := range newValues {
@@ -624,28 +774,4 @@ func addOptions(s string, opt interface{}) (string, error) {
 
 	origURL.RawQuery = origValues.Encode()
 	return origURL.String(), nil
-}
-
-// String is a helper routine that allocates a new string value
-// to store v and returns a pointer to it.
-func String(v string) *string {
-	p := new(string)
-	*p = v
-	return p
-}
-
-// Int is a helper routine that allocates a new int value
-// to store v and returns a pointer to it.
-func Int(v int) *int {
-	p := new(int)
-	*p = v
-	return p
-}
-
-// Bool is a helper routine that allocates a new bool value
-// to store v and returns a pointer to it.
-func Bool(v bool) *bool {
-	p := new(bool)
-	*p = v
-	return p
 }
