@@ -2,6 +2,7 @@ package reddit
 
 import (
 	"encoding/json"
+	"fmt"
 )
 
 const (
@@ -70,7 +71,9 @@ type listing struct {
 func (l *listing) UnmarshalJSON(b []byte) error {
 	err := json.Unmarshal(b, l)
 	if err != nil {
-		return err // TODO
+		return &JSONError{
+			Message: fmt.Sprintf("error during unmarshal: %s", err.Error()),
+			Data:    b}
 	}
 	return nil
 }
@@ -89,7 +92,7 @@ type created struct {
 // Comment is a comment posted by a user.
 type Comment struct {
 	thing
-	data struct {
+	Data struct {
 		votable
 		created
 
@@ -122,7 +125,9 @@ type Comment struct {
 func (c *Comment) UnmarshalJSON(b []byte) error {
 	err := json.Unmarshal(b, c)
 	if err != nil {
-		return err // TODO
+		return &JSONError{
+			Message: fmt.Sprintf("error during unmarshal: %s", err.Error()),
+			Data:    b}
 	}
 	return nil
 }
@@ -130,7 +135,7 @@ func (c *Comment) UnmarshalJSON(b []byte) error {
 // Link is a submitted post on Reddit.
 type Link struct {
 	thing
-	data struct {
+	Data struct {
 		votable
 		created
 
@@ -168,7 +173,9 @@ type Link struct {
 func (l *Link) UnmarshalJSON(b []byte) error {
 	err := json.Unmarshal(b, l)
 	if err != nil {
-		return err // TODO
+		return &JSONError{
+			Message: fmt.Sprintf("error during unmarshal: %s", err.Error()),
+			Data:    b}
 	}
 	return nil
 }
@@ -176,7 +183,7 @@ func (l *Link) UnmarshalJSON(b []byte) error {
 // Subreddit holds information about a subreddit
 type Subreddit struct {
 	thing
-	data struct {
+	Data struct {
 		AccountsActive       int    `json:"accounts_active"`
 		CommentScoreHideMins int    `json:"comment_score_hide_mins"`
 		Description          string `json:"description"`
@@ -205,14 +212,16 @@ type Subreddit struct {
 func (s *Subreddit) UnmarshalJSON(b []byte) error {
 	err := json.Unmarshal(b, s)
 	if err != nil {
-		return err // TODO
+		return &JSONError{
+			Message: fmt.Sprintf("error during unmarshal: %s", err.Error()),
+			Data:    b}
 	}
 	return nil
 }
 
 type Message struct {
 	thing
-	data struct {
+	Data struct {
 		created
 
 		Author       string `json:"author"`
@@ -234,14 +243,16 @@ type Message struct {
 func (m *Message) UnmarshalJSON(b []byte) error {
 	err := json.Unmarshal(b, m)
 	if err != nil {
-		return err // TODO
+		return &JSONError{
+			Message: fmt.Sprintf("error during unmarshal: %s", err.Error()),
+			Data:    b}
 	}
 	return nil
 }
 
 type Account struct {
 	thing
-	data struct {
+	Data struct {
 		created
 
 		CommentKarma     int    `json:"comment_karma"`
@@ -263,7 +274,9 @@ type Account struct {
 func (a *Account) UnmarshalJSON(b []byte) error {
 	err := json.Unmarshal(b, a)
 	if err != nil {
-		return err // TODO
+		return &JSONError{
+			Message: fmt.Sprintf("error during unmarshal: %s", err.Error()),
+			Data:    b}
 	}
 	return nil
 }
@@ -271,7 +284,7 @@ func (a *Account) UnmarshalJSON(b []byte) error {
 // More holds information used to retrieve additional comments omitted from a base comment tree.
 type More struct {
 	thing
-	data struct {
+	Data struct {
 		Children []string `json:"children"`
 	} `json:"data"`
 }
@@ -279,7 +292,9 @@ type More struct {
 func (m *More) UnmarshalJSON(b []byte) error {
 	err := json.Unmarshal(b, m)
 	if err != nil {
-		return err // TODO
+		return &JSONError{
+			Message: fmt.Sprintf("error during unmarshal: %s", err.Error()),
+			Data:    b}
 	}
 	return nil
 }
