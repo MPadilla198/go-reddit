@@ -199,7 +199,7 @@ const (
 )
 
 // GetAboutWhere gets a subreddit by name .
-func (s *SubredditService) GetAboutWhere(ctx context.Context, subreddit string, w SubredditAboutWhere, opts ListingSubredditOptions) (*Listing, *http.Response, error) {
+func (s *SubredditService) GetAboutWhere(ctx context.Context, subreddit string, w SubredditAboutWhere, opts *ListingSubredditOptions) (*Listing, *http.Response, error) {
 	if subreddit == "" {
 		return nil, nil, &InternalError{"subreddit cannot be empty"}
 	}
@@ -267,7 +267,7 @@ type SubredditSearchOptions struct {
 // If include_unadvertisable is False, subreddits that have hide_ads set to True or are on the anti_ads_subreddits list will be filtered.
 // If exact is true, only an exact match will be returned.
 // Exact matches are inclusive of over_18 subreddits, but not hide_ad subreddits when include_unadvertisable is False.
-func (s *SubredditService) SearchNames(ctx context.Context, opts SubredditSearchOptions) ([]string, *http.Response, error) {
+func (s *SubredditService) SearchNames(ctx context.Context, opts *SubredditSearchOptions) ([]string, *http.Response, error) {
 	path, err := addOptions("api/search_reddit_names", opts)
 	if err != nil {
 		return nil, nil, err
@@ -294,7 +294,7 @@ func (s *SubredditService) SearchNames(ctx context.Context, opts SubredditSearch
 // If include_unadvertisable is False, subreddits that have hide_ads set to True or are on the anti_ads_subreddits list will be filtered.
 // If exact is true, only an exact match will be returned.
 // Exact matches are inclusive of over_18 subreddits, but not hide_ad subreddits when include_unadvertisable is False.
-func (s *SubredditService) SearchSubreddits(ctx context.Context, opts SubredditSearchOptions) ([]string, *http.Response, error) {
+func (s *SubredditService) SearchSubreddits(ctx context.Context, opts *SubredditSearchOptions) ([]string, *http.Response, error) {
 	path, err := addOptions("api/search_subreddits", opts)
 
 	req, err := s.client.NewRequest(http.MethodGet, path, nil)
@@ -318,7 +318,7 @@ func (s *SubredditService) SearchSubreddits(ctx context.Context, opts SubredditS
 // If modifying a subset of options, it may be useful to get the current settings from /about/edit.json first.
 // For backwards compatibility, description is the sidebar text and public_description is the publicly visible subreddit description.
 // Most of the parameters for this endpoint are identical to options visible in the user interface and their meanings are best explained there.
-func (s *SubredditService) PostSiteAdmin(ctx context.Context, modHash string, opts SubredditAdminOptions) (*http.Response, error) {
+func (s *SubredditService) PostSiteAdmin(ctx context.Context, modHash string, opts *SubredditAdminOptions) (*http.Response, error) {
 	path := "api/site_admin"
 	req, err := s.client.NewJSONRequest(http.MethodPost, path, opts)
 	if err != nil {
@@ -360,7 +360,7 @@ type SubredditAutocompleteOptions struct {
 
 // GetSubredditAutocomplete returns a list of subreddits and data for subreddits whose names start with 'query'.
 // Uses typeahead endpoint to receive the list of subreddits names. Typeahead provides exact matches, typo correction, fuzzy matching and boosts subreddits to the top that the user is subscribed to.
-func (s *SubredditService) GetSubredditAutocomplete(ctx context.Context, opts SubredditAutocompleteOptions) (*http.Response, error) {
+func (s *SubredditService) GetSubredditAutocomplete(ctx context.Context, opts *SubredditAutocompleteOptions) (*http.Response, error) {
 	path := "api/subreddit_autocomplete"
 
 	req, err := s.client.NewJSONRequest(http.MethodGet, path, opts)
@@ -380,7 +380,7 @@ type SubredditAutocompleteV2Options struct {
 	TypeaheadActive bool   `json:"typeahead_active,omitempty"`
 }
 
-func (s *SubredditService) GetSubredditAutocompleteV2(ctx context.Context, opts SubredditAutocompleteV2Options) (*http.Response, error) {
+func (s *SubredditService) GetSubredditAutocompleteV2(ctx context.Context, opts *SubredditAutocompleteV2Options) (*http.Response, error) {
 	path := "api/subreddit_autocomplete_v2"
 
 	req, err := s.client.NewJSONRequest(http.MethodGet, path, opts)
@@ -406,7 +406,7 @@ type SubredditStylesheetOptions struct {
 }
 
 // PostSubredditStylesheet updates a subreddit's stylesheet. op should be save to update the contents of the stylesheet.
-func (s *SubredditService) PostSubredditStylesheet(ctx context.Context, subreddit, modHash string, opts SubredditStylesheetOptions) (*http.Response, error) {
+func (s *SubredditService) PostSubredditStylesheet(ctx context.Context, subreddit, modHash string, opts *SubredditStylesheetOptions) (*http.Response, error) {
 	path := fmt.Sprintf("r/%s/api/subreddit_stylesheet", subreddit)
 
 	req, err := s.client.NewJSONRequest(http.MethodPost, path, opts)
@@ -442,7 +442,7 @@ type SubredditSubscribeOptions struct {
 // PostSubscribe subscribes to or unsubscribe from a subreddit.
 // To subscribe, action should be sub. To unsubscribe, action should be unsub. The user must have access to the subreddit to be able to subscribe to it.
 // The skip_initial_defaults param can be set to True to prevent automatically subscribing the user to the current set of defaults when they take their first subscription action. Attempting to set it for an unsubscribe action will result in an error.
-func (s *SubredditService) PostSubscribe(ctx context.Context, modHash string, opts SubredditSubscribeOptions) (*http.Response, error) {
+func (s *SubredditService) PostSubscribe(ctx context.Context, modHash string, opts *SubredditSubscribeOptions) (*http.Response, error) {
 	path := "api/subscribe"
 
 	req, err := s.client.NewJSONRequest(http.MethodPost, path, opts)
@@ -494,7 +494,7 @@ type SubredditUploadImageOptions struct {
 // Subreddits have a limited number of images that can be in use at any given time. If no image with the specified name already exists, one of the slots will be consumed.
 //
 // If an image with the specified name already exists, it will be replaced. This does not affect the stylesheet immediately, but will take effect the next time the stylesheet is saved.
-func (s *SubredditService) PostUploadSubredditImage(ctx context.Context, subreddit, modHash string, opts SubredditUploadImageOptions) (*http.Response, error) {
+func (s *SubredditService) PostUploadSubredditImage(ctx context.Context, subreddit, modHash string, opts *SubredditUploadImageOptions) (*http.Response, error) {
 	path := fmt.Sprintf("r/%s/api/upload_sr_image", subreddit)
 
 	req, err := s.client.NewJSONRequest(http.MethodPost, path, opts)
