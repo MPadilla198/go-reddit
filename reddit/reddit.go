@@ -76,6 +76,7 @@ type Client struct {
 	redditID string
 
 	Account    *AccountService
+	Captcha    *CaptchaService
 	Collection *CollectionService
 	Comment    *CommentService
 	Emoji      *EmojiService
@@ -110,6 +111,7 @@ func newClient() *Client {
 	client := &Client{client: &http.Client{}, BaseURL: baseURL, TokenURL: tokenURL}
 
 	client.Account = &AccountService{client: client}
+	client.Captcha = &CaptchaService{client: client}
 	client.Collection = &CollectionService{client: client}
 	client.Emoji = &EmojiService{client: client}
 	client.Flair = &FlairService{client: client}
