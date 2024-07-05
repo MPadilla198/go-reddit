@@ -141,7 +141,7 @@ type rootRelationshipList struct {
 }
 
 // GetIdentity returns some general information about your account.
-func (s *AccountService) GetIdentity(ctx context.Context) (*User, *http.Response, error) {
+func (s *AccountService) GetIdentity(ctx context.Context) (*Account, *http.Response, error) {
 	path := "api/v1/me"
 
 	req, err := s.client.NewRequest(http.MethodGet, path, nil)
@@ -149,7 +149,7 @@ func (s *AccountService) GetIdentity(ctx context.Context) (*User, *http.Response
 		return nil, nil, err
 	}
 
-	root := new(User)
+	root := new(Account)
 	resp, err := s.client.Do(ctx, req, root)
 	if err != nil {
 		return nil, nil, &ResponseError{err.Error(), resp}
@@ -158,19 +158,15 @@ func (s *AccountService) GetIdentity(ctx context.Context) (*User, *http.Response
 	return root, resp, nil
 }
 
-// GetKarma returns a breakdown of your karma per subreddit. TODO figure out
-func (s *AccountService) GetKarma(ctx context.Context) (karma []*SubredditKarma, resp *http.Response, err error) {
+// GetKarma returns a breakdown of your karma per subreddit.
+func (s *AccountService) GetKarma(ctx context.Context) (resp *http.Response, err error) {
 	path := "api/v1/me/karma"
 	req, err := s.client.NewRequest(http.MethodGet, path, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
 
-	resp, err = s.client.Do(ctx, req, karma)
-	if err != nil {
-		return nil, nil, err
-	}
-	return karma, resp, nil
+	return s.client.Do(ctx, req, nil)
 }
 
 // GetPreferences returns your account settings.
@@ -209,19 +205,15 @@ func (s *AccountService) UpdatePreferences(ctx context.Context, settings *Prefer
 	return root, resp, nil
 }
 
-// GetTrophies returns a list of your trophies. TODO figure out
-func (s *AccountService) GetTrophies(ctx context.Context) (trophies []*Trophy, resp *http.Response, err error) {
+// GetTrophies returns a list of your trophies.
+func (s *AccountService) GetTrophies(ctx context.Context) (resp *http.Response, err error) {
 	path := "api/v1/me/trophies"
 	req, err := s.client.NewRequest(http.MethodGet, path, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
 
-	resp, err = s.client.Do(ctx, req, trophies)
-	if err != nil {
-		return nil, nil, err
-	}
-	return
+	return s.client.Do(ctx, req, nil)
 }
 
 // GetFriends returns a list of your friends.

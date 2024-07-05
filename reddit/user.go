@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/url"
 )
 
 // UserService handles communication with the user
@@ -15,399 +14,297 @@ type UserService struct {
 	client *Client
 }
 
-// User represents a Reddit user.
-type User struct {
-	// this is not the full ID, watch out.
-	ID      string     `json:"id,omitempty"`
-	Name    string     `json:"name,omitempty"`
-	Created *Timestamp `json:"created_utc,omitempty"`
-
-	PostKarma    int `json:"link_karma"`
-	CommentKarma int `json:"comment_karma"`
-
-	IsFriend         bool `json:"is_friend"`
-	IsEmployee       bool `json:"is_employee"`
-	HasVerifiedEmail bool `json:"has_verified_email"`
-	NSFW             bool `json:"over_18"`
-	IsSuspended      bool `json:"is_suspended"`
+// GetSearch Search user profiles by title and description.
+func (s *UserService) GetSearch(ctx context.Context, opts *ListingSubredditOptions) (*Listing, *http.Response, error) {
+	return s.client.getListing(ctx, "users/search", opts)
 }
 
-// UserSummary represents a Reddit user, but
-// contains fewer pieces of information.
-type UserSummary struct {
-	Name    string     `json:"name,omitempty"`
-	Created *Timestamp `json:"created_utc,omitempty"`
+type UsersWhere string
 
-	PostKarma    int `json:"link_karma"`
-	CommentKarma int `json:"comment_karma"`
+const (
+	UsersWherePopular UsersWhere = "popular"
+	UsersWhereNew     UsersWhere = "new"
+)
 
-	NSFW bool `json:"profile_over_18"`
+// GetUsersWhere gets all user subreddits.
+// The where parameter chooses the order in which the subreddits are displayed.
+// "popular" sorts on the activity of the subreddit and the position of the subreddits can shift around.
+// "new" sorts the user subreddits based on their creation date, newest first.
+func (s *UserService) GetUsersWhere(ctx context.Context, where UsersWhere, opts *ListingOptions) (*Listing, *http.Response, error) {
+	path := fmt.Sprintf("users/%s", where)
+
+	return s.client.getListing(ctx, path, opts)
 }
 
-// Blocked represents a blocked relationship.
-type Blocked struct {
-	Blocked   string     `json:"name,omitempty"`
-	BlockedID string     `json:"id,omitempty"`
-	Created   *Timestamp `json:"date,omitempty"`
+type UserBlockOptions struct {
+	AccountID string `json:"account_id,omitempty"` // fullname of an account
+	APIType   string `json:"api_type"`
+	Name      string `json:"name,omitempty"` // A valid, existing reddit username
 }
 
-// Trophy is a Reddit award.
-type Trophy struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-}
+// PostBlockUser For blocking a user. Only accessible to approved OAuth applications
+func (s *UserService) PostBlockUser(ctx context.Context, modHash string, opts UserBlockOptions) (*http.Response, error) {
+	path := "api/block_user"
 
-// Get returns information about the user.
-func (s *UserService) Get(ctx context.Context, username string) (*User, *Response, error) {
-	path := fmt.Sprintf("user/%s/about", username)
-	t, resp, err := s.client.getThing(ctx, path, nil)
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, opts)
 	if err != nil {
-		return nil, resp, err
+		return nil, &InternalError{Message: err.Error()}
 	}
-	user, _ := t.User()
-	return user, resp, nil
+
+	req.Header.Add("X-Modhash", modHash)
+
+	return s.client.Do(ctx, req, nil)
 }
 
-// GetMultipleByID returns multiple users from their full IDs.
-// The response body is a map where the keys are the IDs (if they exist), and the value is the user.
-func (s *UserService) GetMultipleByID(ctx context.Context, ids ...string) (map[string]*UserSummary, *Response, error) {
-	params := struct {
-		IDs []string `url:"ids,omitempty,comma"`
-	}{ids}
+type UserRelationshipType string
 
+const (
+	UserRelationshipFriend          UserRelationshipType = "friend"
+	UserRelationshipModerator       UserRelationshipType = "moderator"
+	UserRelationshipModeratorInvite UserRelationshipType = "moderator_invite"
+	UserRelationshipContributor     UserRelationshipType = "contributor"
+	UserRelationshipBanned          UserRelationshipType = "banned"
+	UserRelationshipMuted           UserRelationshipType = "muted"
+	UserRelationshipWikibanned      UserRelationshipType = "wikibanned"
+	UserRelationshipWikicontributor UserRelationshipType = "wikicontributor"
+)
+
+type UserFriendOptions struct {
+	APIType     string               `json:"api_type"`
+	BanContext  string               `json:"ban_context,omitempty"` // fullname of a thing
+	BanMessage  string               `json:"ban_message,omitempty"`
+	Container   string               `json:"container,omitempty"` //  If type is friend or enemy, 'container' MUST be the current user's fullname; for other types, the subreddit must be set via URL
+	Duration    int                  `json:"duration,omitempty"`  // an integer between 1 and 999
+	Name        string               `json:"name"`                // the name of an existing user`
+	Note        string               `json:"note,omitempty"`      // A string of no longer than 300 characters
+	Permissions string               `json:"permissions,omitempty"`
+	Type        UserRelationshipType `json:"type"`
+}
+
+// PostFriend Create a relationship between a user and another user or subreddit
+//
+// OAuth2 use requires appropriate scope based on the 'type' of the relationship:
+// moderator: Use "moderator_invite"
+// moderator_invite: modothers
+// contributor: modcontributors
+// banned: modcontributors
+// muted: modcontributors
+// wikibanned: modcontributors and modwiki
+// wikicontributor: modcontributors and modwiki
+// friend: Use /api/v1/me/friends/{username}
+// enemy: Use /api/block
+// Complement to POST_unfriend
+func (s *UserService) PostFriend(ctx context.Context, subreddit, modHash string, opts UserFriendOptions) (*http.Response, error) {
+	path := fmt.Sprintf("api/friend")
+	if subreddit != "" {
+		path = fmt.Sprintf("r/%s/%s", subreddit, path)
+	}
+
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, opts)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+
+	req.Header.Add("X-Modhash", modHash)
+
+	return s.client.Do(ctx, req, nil)
+}
+
+type UserReportOptions struct {
+	Details string `json:"details"` // JSON data
+	Reason  string `json:"reason"`  // a string no longer than 100 characters
+	User    string `json:"user"`    // A valid, existing reddit username
+}
+
+// PostReportUser Report a user. Reporting a user brings it to the attention of a Reddit admin.
+func (s *UserService) PostReportUser(ctx context.Context, opts UserReportOptions) (*http.Response, error) {
+	path := "api/report_user"
+
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, opts)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+
+	return s.client.Do(ctx, req, nil)
+}
+
+type UserPermissionsOptions struct {
+	APIType     string `json:"api_type"`
+	Name        string `json:"name"` // the name of an existing user
+	Permissions string `json:"permissions"`
+	Type        string `json:"type"`
+}
+
+func (s *UserService) PostSetPermissions(ctx context.Context, subreddit, modHash string, opts UserPermissionsOptions) (*http.Response, error) {
+	path := fmt.Sprintf("r/%s/api/setpermissions", subreddit)
+
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, opts)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+	req.Header.Add("X-Modhash", modHash)
+
+	return s.client.Do(ctx, req, nil)
+}
+
+type UserUnfriendOptions struct {
+	APIType   string               `json:"api_type"`
+	Container string               `json:"container,omitempty"` // If type is friend or enemy, 'container' MUST be the current user's fullname
+	ID        string               `json:"id,omitempty"`        // fullname of the thing
+	Name      string               `json:"name,omitempty"`      // The name of the eisting user
+	Type      UserRelationshipType `json:"type"`
+}
+
+// PostUnfriend Remove a relationship between a user and another user or subreddit
+//
+// The user can either be passed in by name (nuser) or by fullname (iuser). If type is friend or enemy, 'container' MUST be the current user's fullname; for other types, the subreddit must be set via URL (e.g., /r/funny/api/unfriend)
+//
+// OAuth2 use requires appropriate scope based on the 'type' of the relationship:
+//
+// moderator: modothers
+// moderator_invite: modothers
+// contributor: modcontributors
+// banned: modcontributors
+// muted: modcontributors
+// wikibanned: modcontributors and modwiki
+// wikicontributor: modcontributors and modwiki
+// friend: Use /api/v1/me/friends/{username}
+// enemy: privatemessages
+// Complement to POST_friend
+func (s *UserService) PostUnfriend(ctx context.Context, subreddit, modHash string, opts UserUnfriendOptions) (*http.Response, error) {
+	path := fmt.Sprintf("api/unfriend")
+	if subreddit != "" {
+		path = fmt.Sprintf("r/%s/%s", subreddit, path)
+	}
+
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, opts)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+
+	req.Header.Add("X-Modhash", modHash)
+
+	return s.client.Do(ctx, req, nil)
+}
+
+func (s *UserService) GetUserDataByAccountIDs(ctx context.Context, userList []string) (*http.Response, error) {
 	path := "api/user_data_by_account_ids"
-	path, err := addOptions(path, params)
+
+	req, err := s.client.NewJSONRequest(http.MethodGet, path, userList)
 	if err != nil {
-		return nil, nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
 
-	req, err := s.client.NewRequest(http.MethodGet, path, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	root := make(map[string]*UserSummary)
-	resp, err := s.client.Do(ctx, req, &root)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return root, resp, nil
+	return s.client.Do(ctx, req, nil)
 }
 
-// UsernameAvailable checks whether a username is available for registration.
-func (s *UserService) UsernameAvailable(ctx context.Context, username string) (bool, *Response, error) {
-	params := struct {
-		User string `url:"user"`
-	}{username}
+// GetUsernameAvailable checks whether a username is available for registration.
+func (s *UserService) GetUsernameAvailable(ctx context.Context, username string) (*http.Response, error) {
+	data := struct {
+		User string `json:"user"`
+	}{User: username}
 
 	path := "api/username_available"
-	path, err := addOptions(path, params)
+
+	req, err := s.client.NewJSONRequest(http.MethodGet, path, data)
 	if err != nil {
-		return false, nil, err
-	}
-
-	req, err := s.client.NewRequest(http.MethodGet, path, nil)
-	if err != nil {
-		return false, nil, err
-	}
-
-	root := new(bool)
-	resp, err := s.client.Do(ctx, req, root)
-	if err != nil {
-		return false, resp, err
-	}
-
-	return *root, resp, nil
-}
-
-// Overview returns a list of your posts and comments.
-func (s *UserService) Overview(ctx context.Context, opts *ListUserOverviewOptions) ([]*Post, []*Comment, *Response, error) {
-	return s.OverviewOf(ctx, s.client.Username, opts)
-}
-
-// OverviewOf returns a list of the user's posts and comments.
-func (s *UserService) OverviewOf(ctx context.Context, username string, opts *ListUserOverviewOptions) ([]*Post, []*Comment, *Response, error) {
-	path := fmt.Sprintf("user/%s/overview", username)
-	l, resp, err := s.client.getListing(ctx, path, opts)
-	if err != nil {
-		return nil, nil, resp, err
-	}
-	return l.Posts(), l.Comments(), resp, nil
-}
-
-// Posts returns a list of your posts.
-func (s *UserService) Posts(ctx context.Context, opts *ListUserOverviewOptions) ([]*Post, *Response, error) {
-	return s.PostsOf(ctx, s.client.Username, opts)
-}
-
-// PostsOf returns a list of the user's posts.
-func (s *UserService) PostsOf(ctx context.Context, username string, opts *ListUserOverviewOptions) ([]*Post, *Response, error) {
-	path := fmt.Sprintf("user/%s/submitted", username)
-	l, resp, err := s.client.getListing(ctx, path, opts)
-	if err != nil {
-		return nil, resp, err
-	}
-	return l.Posts(), resp, nil
-}
-
-// Comments returns a list of your comments.
-func (s *UserService) Comments(ctx context.Context, opts *ListUserOverviewOptions) ([]*Comment, *Response, error) {
-	return s.CommentsOf(ctx, s.client.Username, opts)
-}
-
-// CommentsOf returns a list of the user's comments.
-func (s *UserService) CommentsOf(ctx context.Context, username string, opts *ListUserOverviewOptions) ([]*Comment, *Response, error) {
-	path := fmt.Sprintf("user/%s/comments", username)
-	l, resp, err := s.client.getListing(ctx, path, opts)
-	if err != nil {
-		return nil, resp, err
-	}
-	return l.Comments(), resp, nil
-}
-
-// Saved returns a list of the user's saved posts and comments.
-func (s *UserService) Saved(ctx context.Context, opts *ListUserOverviewOptions) ([]*Post, []*Comment, *Response, error) {
-	path := fmt.Sprintf("user/%s/saved", s.client.Username)
-	l, resp, err := s.client.getListing(ctx, path, opts)
-	if err != nil {
-		return nil, nil, resp, err
-	}
-	return l.Posts(), l.Comments(), resp, nil
-}
-
-// Upvoted returns a list of your upvoted posts.
-func (s *UserService) Upvoted(ctx context.Context, opts *ListUserOverviewOptions) ([]*Post, *Response, error) {
-	return s.UpvotedOf(ctx, s.client.Username, opts)
-}
-
-// UpvotedOf returns a list of the user's upvoted posts.
-// The user's votes must be public for this to work (unless the user is you).
-func (s *UserService) UpvotedOf(ctx context.Context, username string, opts *ListUserOverviewOptions) ([]*Post, *Response, error) {
-	path := fmt.Sprintf("user/%s/upvoted", username)
-	l, resp, err := s.client.getListing(ctx, path, opts)
-	if err != nil {
-		return nil, resp, err
-	}
-	return l.Posts(), resp, nil
-}
-
-// Downvoted returns a list of your downvoted posts.
-func (s *UserService) Downvoted(ctx context.Context, opts *ListUserOverviewOptions) ([]*Post, *Response, error) {
-	return s.DownvotedOf(ctx, s.client.Username, opts)
-}
-
-// DownvotedOf returns a list of the user's downvoted posts.
-// The user's votes must be public for this to work (unless the user is you).
-func (s *UserService) DownvotedOf(ctx context.Context, username string, opts *ListUserOverviewOptions) ([]*Post, *Response, error) {
-	path := fmt.Sprintf("user/%s/downvoted", username)
-	l, resp, err := s.client.getListing(ctx, path, opts)
-	if err != nil {
-		return nil, resp, err
-	}
-	return l.Posts(), resp, nil
-}
-
-// Hidden returns a list of the user's hidden posts.
-func (s *UserService) Hidden(ctx context.Context, opts *ListUserOverviewOptions) ([]*Post, *Response, error) {
-	path := fmt.Sprintf("user/%s/hidden", s.client.Username)
-	l, resp, err := s.client.getListing(ctx, path, opts)
-	if err != nil {
-		return nil, resp, err
-	}
-	return l.Posts(), resp, nil
-}
-
-// Gilded returns a list of the user's gilded posts.
-func (s *UserService) Gilded(ctx context.Context, opts *ListUserOverviewOptions) ([]*Post, *Response, error) {
-	path := fmt.Sprintf("user/%s/gilded", s.client.Username)
-	l, resp, err := s.client.getListing(ctx, path, opts)
-	if err != nil {
-		return nil, resp, err
-	}
-	return l.Posts(), resp, nil
-}
-
-// GetFriendship returns relationship details with the specified user.
-// If the user is not your friend, it will return an error.
-func (s *UserService) GetFriendship(ctx context.Context, username string) (*Relationship, *Response, error) {
-	path := fmt.Sprintf("api/v1/me/friends/%s", username)
-
-	req, err := s.client.NewRequest(http.MethodGet, path, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	root := new(Relationship)
-	resp, err := s.client.Do(ctx, req, root)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return root, resp, nil
-}
-
-// Friend a user.
-func (s *UserService) Friend(ctx context.Context, username string) (*Relationship, *Response, error) {
-	body := struct {
-		Username string `json:"name"`
-	}{username}
-
-	path := fmt.Sprintf("api/v1/me/friends/%s", username)
-	req, err := s.client.NewJSONRequest(http.MethodPut, path, body)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	root := new(Relationship)
-	resp, err := s.client.Do(ctx, req, root)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return root, resp, nil
-}
-
-// Unfriend a user.
-func (s *UserService) Unfriend(ctx context.Context, username string) (*Response, error) {
-	path := fmt.Sprintf("api/v1/me/friends/%s", username)
-	req, err := s.client.NewRequest(http.MethodDelete, path, nil)
-	if err != nil {
-		return nil, err
-	}
-	return s.client.Do(ctx, req, nil)
-}
-
-// Block a user.
-func (s *UserService) Block(ctx context.Context, username string) (*Blocked, *Response, error) {
-	path := "api/block_user"
-
-	form := url.Values{}
-	form.Set("name", username)
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	root := new(Blocked)
-	resp, err := s.client.Do(ctx, req, root)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return root, resp, nil
-}
-
-// BlockByID blocks a user via their full id.
-func (s *UserService) BlockByID(ctx context.Context, id string) (*Blocked, *Response, error) {
-	path := "api/block_user"
-
-	form := url.Values{}
-	form.Set("account_id", id)
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	root := new(Blocked)
-	resp, err := s.client.Do(ctx, req, root)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return root, resp, nil
-}
-
-// Unblock a user.
-func (s *UserService) Unblock(ctx context.Context, username string) (*Response, error) {
-	selfID, resp, err := s.client.id(ctx)
-	if err != nil {
-		return resp, err
-	}
-
-	path := "api/unfriend"
-
-	form := url.Values{}
-	form.Set("name", username)
-	form.Set("type", "enemy")
-	form.Set("container", selfID)
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
 
 	return s.client.Do(ctx, req, nil)
 }
 
-// UnblockByID unblocks a user via their full id.
-func (s *UserService) UnblockByID(ctx context.Context, id string) (*Response, error) {
-	selfID, resp, err := s.client.id(ctx)
+// DeleteFriendByUsername unfriends a user. User is a valid, unused, username
+func (s *UserService) DeleteFriendByUsername(ctx context.Context, username string) (*http.Response, error) {
+	data := struct {
+		ID string `json:"id"`
+	}{ID: username}
+
+	path := fmt.Sprintf("api/v1/me/friends/%s", username)
+
+	req, err := s.client.NewJSONRequest(http.MethodDelete, path, data)
 	if err != nil {
-		return resp, err
+		return nil, &InternalError{Message: err.Error()}
 	}
-
-	path := "api/unfriend"
-
-	form := url.Values{}
-	form.Set("id", id)
-	form.Set("type", "enemy")
-	form.Set("container", selfID)
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, err
-	}
-
 	return s.client.Do(ctx, req, nil)
 }
 
-// Trophies returns a list of your trophies.
-func (s *UserService) Trophies(ctx context.Context) ([]*Trophy, *Response, error) {
-	return s.TrophiesOf(ctx, s.client.Username)
+// GetFriendByUsername Get information about a specific 'friend', such as notes.
+func (s *UserService) GetFriendByUsername(ctx context.Context, username string) (*http.Response, error) {
+	data := struct {
+		ID string `json:"id"`
+	}{ID: username}
+
+	path := fmt.Sprintf("api/v1/me/friends/%s", username)
+
+	req, err := s.client.NewJSONRequest(http.MethodGet, path, data)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+	return s.client.Do(ctx, req, nil)
 }
 
-// TrophiesOf returns a list of the specified user's trophies.
-func (s *UserService) TrophiesOf(ctx context.Context, username string) ([]*Trophy, *Response, error) {
+// PutFriendByUsername Create or update a "friend" relationship.
+// This operation is idempotent. It can be used to add a new friend, or update an existing friend (e.g., add/change the note on that friend)
+// "note": a string no longer than 300 characters,
+func (s *UserService) PutFriendByUsername(ctx context.Context, username, note string) (*http.Response, error) {
+	data := struct {
+		Name string `json:"name"`
+		Note string `json:"note"`
+	}{Name: username, Note: note}
+
+	path := fmt.Sprintf("api/v1/me/friends/%s", username)
+
+	req, err := s.client.NewJSONRequest(http.MethodPut, path, data)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+	return s.client.Do(ctx, req, nil)
+}
+
+// GetUserTrophies Return a list of trophies for the a given user.
+func (s *UserService) GetUserTrophies(ctx context.Context, username string) (*http.Response, error) {
+	data := struct {
+		ID string `json:"id"`
+	}{ID: username}
+
 	path := fmt.Sprintf("api/v1/user/%s/trophies", username)
-	t, resp, err := s.client.getThing(ctx, path, nil)
+
+	req, err := s.client.NewJSONRequest(http.MethodGet, path, data)
 	if err != nil {
-		return nil, resp, err
+		return nil, &InternalError{Message: err.Error()}
 	}
-	trophies, _ := t.TrophyList()
-	return trophies, resp, nil
+
+	return s.client.Do(ctx, req, nil)
 }
 
-// Popular gets the user subreddits with the most activity.
-func (s *UserService) Popular(ctx context.Context, opts *ListOptions) ([]*Subreddit, *Response, error) {
-	path := "users/popular"
-	l, resp, err := s.client.getListing(ctx, path, opts)
+// GetUserAbout Return information about the user, including karma and gold status.
+func (s *UserService) GetUserAbout(ctx context.Context, username string) (*http.Response, error) {
+	path := fmt.Sprintf("user/%s/about", username)
+
+	req, err := s.client.NewRequest(http.MethodGet, path, nil)
 	if err != nil {
-		return nil, resp, err
+		return nil, &InternalError{Message: err.Error()}
 	}
-	return l.Subreddits(), resp, nil
+
+	return s.client.Do(ctx, req, nil)
 }
 
-// New gets the most recently created user subreddits.
-func (s *UserService) New(ctx context.Context, opts *ListUserOverviewOptions) ([]*Subreddit, *Response, error) {
-	path := "users/new"
-	l, resp, err := s.client.getListing(ctx, path, opts)
-	if err != nil {
-		return nil, resp, err
-	}
-	return l.Subreddits(), resp, nil
-}
+type UserWhere string
 
-// Search for users.
-// todo: maybe include the sort option? (relevance, activity)
-func (s *UserService) Search(ctx context.Context, query string, opts *ListOptions) ([]*User, *Response, error) {
-	path := fmt.Sprintf("users/search?q=%s", query)
-	l, resp, err := s.client.getListing(ctx, path, opts)
-	if err != nil {
-		return nil, resp, err
-	}
-	return l.Users(), resp, nil
+const (
+	UserWhereOverview  UserWhere = "overview"
+	UserWhereSubmitted UserWhere = "submitted"
+	UserWhereComments  UserWhere = "comments"
+	UserWhereUpvoted   UserWhere = "upvoted"
+	UserWhereDownvoted UserWhere = "downvoted"
+	UserWhereHidden    UserWhere = "hidden"
+	UserWhereSaved     UserWhere = "saved"
+	UserWhereGilded    UserWhere = "gilded"
+)
+
+func (s *UserService) GetUserWhere(ctx context.Context, username string, where UserWhere, opts ListingUserOptions) (*Listing, *http.Response, error) {
+	path := fmt.Sprintf("user/%s/%s", username, where)
+
+	return s.client.getListing(ctx, path, opts)
 }

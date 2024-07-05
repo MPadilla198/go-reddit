@@ -388,21 +388,6 @@ func (c *Client) checkRateLimitBeforeDo(req *http.Request) *RateLimitError {
 	return nil
 }
 
-// ID returns the client's Reddit ID.
-func (c *Client) getID(ctx context.Context) (string, *http.Response, error) {
-	if c.redditID != "" {
-		return c.redditID, nil, nil
-	}
-
-	self, resp, err := c.User.Get(ctx, c.Username)
-	if err != nil {
-		return "", resp, err
-	}
-
-	c.redditID = fmt.Sprintf("%s_%s", kindAccount, self.ID)
-	return c.redditID, resp, nil
-}
-
 // DoRequestWithClient submits an HTTP request using the specified client.
 func DoRequestWithClient(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error) {
 	req = req.WithContext(ctx)
