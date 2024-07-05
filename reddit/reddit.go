@@ -221,7 +221,7 @@ func (c *Client) UserAgent() string {
 // NewRequest creates an API request with form data as the body.
 // The path is the relative URL which will be resolved to the BaseURL of the Client.
 // It should always be specified without a preceding slash.
-func (c *Client) NewRequest(method string, path string, form url.Values) (*http.Request, error) {
+func (c *Client) NewRequest(method string, path string, form []byte) (*http.Request, error) {
 	u, err := c.BaseURL.Parse(path)
 	if err != nil {
 		return nil, &InternalError{Message: err.Error()}
@@ -229,7 +229,7 @@ func (c *Client) NewRequest(method string, path string, form url.Values) (*http.
 
 	var body io.Reader
 	if form != nil {
-		body = strings.NewReader(form.Encode())
+		body = bytes.NewReader(form)
 	}
 
 	req, err := http.NewRequest(method, u.String(), body)
@@ -352,6 +352,15 @@ func (c *Client) Do(ctx context.Context, req *http.Request, v interface{}) (*htt
 	}
 
 	return resp, nil
+}
+
+func (c *Client) PostURL(ctx context.Context, path string, form []byte) (*http.Response, error) {
+	req, err := c.NewRequest(http.MethodPost, path, form)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+
+	return c.Do(ctx, req, nil)
 }
 
 func (c *Client) checkRateLimitBeforeDo(req *http.Request) *RateLimitError {
@@ -634,7 +643,7 @@ type ListingSubredditOptions struct {
 	// only for GET [/r/subreddit]/sort → [/r/subreddit]/top and [/r/subreddit]/controversial
 	T string `url:"t,omitempty"`
 	// User is a valid, existing reddit username
-	// only for GET [/r/subreddit]/about/where
+	// only for GET [/r/subreddit]/about/SubredditAboutWhere
 	//→ [/r/subreddit]/about/banned
 	//→ [/r/subreddit]/about/muted
 	//→ [/r/subreddit]/about/wikibanned
@@ -665,7 +674,7 @@ type ListingLiveOptions struct {
 	Stylesr string `url:"stylesr,omitempty"`
 }
 
-// ListingMessageOptions , only for GET /message/where → /message/inbox , /message/unread , /message/sent
+// ListingMessageOptions , only for GET /message/SubredditAboutWhere → /message/inbox , /message/unread , /message/sent
 type ListingMessageOptions struct {
 	ListingOptions
 
@@ -722,7 +731,7 @@ type ListingSearchOptions struct {
 }
 
 // ListingUserOptions is
-// only for GET /user/username/where
+// only for GET /user/username/SubredditAboutWhere
 // → /user/username/overview
 // → /user/username/submitted
 // → /user/username/comments

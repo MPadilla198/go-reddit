@@ -261,7 +261,7 @@ func (s *AccountService) AddTrusted(ctx context.Context, username string) (*http
 	form.Set("api_type", "json")
 	form.Set("name", username)
 
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
+	req, err := s.client.NewRequest(http.MethodPost, path, []byte(form.Encode()))
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +277,7 @@ func (s *AccountService) RemoveTrusted(ctx context.Context, username string) (*h
 	form := url.Values{}
 	form.Set("name", username)
 
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
+	req, err := s.client.NewRequest(http.MethodPost, path, []byte(form.Encode()))
 	if err != nil {
 		return nil, err
 	}
