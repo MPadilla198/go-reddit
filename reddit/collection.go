@@ -2,12 +2,8 @@ package reddit
 
 import (
 	"context"
-	"errors"
 	"net/http"
-	"net/url"
 	"strings"
-
-	"github.com/google/go-querystring/query"
 )
 
 // CollectionService handles communication with the collection
@@ -18,273 +14,205 @@ type CollectionService struct {
 	client *Client
 }
 
-// Collection is a mod curated group of posts within a subreddit.
-type Collection struct {
-	ID      string     `json:"collection_id,omitempty"`
-	Created *Timestamp `json:"created_at_utc,omitempty"`
-	Updated *Timestamp `json:"last_update_utc,omitempty"`
+// PostAddLinkToCollection Add a post to a collection
+func (s *CollectionService) PostAddLinkToCollection(ctx context.Context, collectionID, linkFullname, modHash string) (*http.Response, error) {
+	data := struct {
+		CollectionID string `json:"collection_id"`
+		LinkFullname string `json:"link_fullname"`
+	}{CollectionID: collectionID, LinkFullname: linkFullname}
 
-	Title       string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
-	Permalink   string `json:"permalink,omitempty"`
-	Layout      string `json:"display_layout,omitempty"`
-
-	SubredditID string `json:"subreddit_id,omitempty"`
-	Author      string `json:"author_name,omitempty"`
-	AuthorID    string `json:"author_id,omitempty"`
-
-	// Post at the top of the collection.
-	// This does not appear when getting a list of collections.
-	PrimaryPostID string   `json:"primary_link_id,omitempty"`
-	PostIDs       []string `json:"link_ids,omitempty"`
-}
-
-// CollectionCreateRequest represents a request to create a collection.
-type CollectionCreateRequest struct {
-	Title       string `url:"title"`
-	Description string `url:"description,omitempty"`
-	SubredditID string `url:"sr_fullname"`
-	// One of: TIMELINE, GALLERY.
-	Layout string `url:"display_layout,omitempty"`
-}
-
-// Get gets a collection by its ID.
-func (s *CollectionService) Get(ctx context.Context, id string) (*Collection, *Response, error) {
-	path := "api/v1/collections/collection"
-
-	params := struct {
-		ID           string `url:"collection_id"`
-		IncludePosts bool   `url:"include_links"`
-	}{id, false}
-
-	path, err := addOptions(path, params)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	req, err := s.client.NewRequest(http.MethodGet, path, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	collection := new(Collection)
-	resp, err := s.client.Do(ctx, req, collection)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return collection, resp, nil
-}
-
-// FromSubreddit gets all collections in the subreddit.
-func (s *CollectionService) FromSubreddit(ctx context.Context, id string) ([]*Collection, *Response, error) {
-	path := "api/v1/collections/subreddit_collections"
-
-	params := struct {
-		SubredditID string `url:"sr_fullname"`
-	}{id}
-
-	path, err := addOptions(path, params)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	req, err := s.client.NewRequest(http.MethodGet, path, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var collections []*Collection
-	resp, err := s.client.Do(ctx, req, &collections)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return collections, resp, nil
-}
-
-// Create a collection.
-func (s *CollectionService) Create(ctx context.Context, createRequest *CollectionCreateRequest) (*Collection, *Response, error) {
-	if createRequest == nil {
-		return nil, nil, errors.New("*CollectionCreateRequest: cannot be nil")
-	}
-
-	path := "api/v1/collections/create_collection"
-
-	form, err := query.Values(createRequest)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	collection := new(Collection)
-	resp, err := s.client.Do(ctx, req, collection)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return collection, resp, nil
-}
-
-// Delete a collection via its id.
-func (s *CollectionService) Delete(ctx context.Context, id string) (*Response, error) {
-	path := "api/v1/collections/delete_collection"
-
-	form := url.Values{}
-	form.Set("collection_id", id)
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.client.Do(ctx, req, nil)
-}
-
-// AddPost adds a post (via its full ID) to a collection (via its id).
-func (s *CollectionService) AddPost(ctx context.Context, postID, collectionID string) (*Response, error) {
 	path := "api/v1/collections/add_post_to_collection"
 
-	form := url.Values{}
-	form.Set("link_fullname", postID)
-	form.Set("collection_id", collectionID)
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
+	}
+	req.Header.Add("X-Modhash", modHash)
+
+	return s.client.Do(ctx, req, nil)
+}
+
+// GetCollection Fetch a collection including all the links
+func (s *CollectionService) GetCollection(ctx context.Context, collectionID string, includeLinks bool) (*http.Response, error) {
+	data := struct {
+		CollectionID string `json:"collection_id"`
+		IncludeLinks bool   `json:"include_links"`
+	}{CollectionID: collectionID, IncludeLinks: includeLinks}
+
+	path := "api/v1/collections/collection"
+
+	req, err := s.client.NewJSONRequest(http.MethodGet, path, data)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
 	}
 
 	return s.client.Do(ctx, req, nil)
 }
 
-// RemovePost removes a post (via its full ID) from a collection (via its id).
-func (s *CollectionService) RemovePost(ctx context.Context, postID, collectionID string) (*Response, error) {
+type CollectionDisplayLayout string
+
+const (
+	CollectionDisplayLayoutTimeline CollectionDisplayLayout = "timeline"
+	CollectionDisplayLayoutGallery  CollectionDisplayLayout = "gallery"
+)
+
+type CreateCollectionOptions struct {
+	Description   string                  `json:"description"`    // a string no longer than 500 characters
+	DisplayLayout CollectionDisplayLayout `json:"display_layout"` //
+	SRFullname    string                  `json:"sr_fullname"`    // a fullname of a subreddit
+	Title         string                  `json:"title"`          // title of the submission. up to 300 characters long
+}
+
+// PostCreateCollection Create a collection.
+func (s *CollectionService) PostCreateCollection(ctx context.Context, modHash string, createRequest *CreateCollectionOptions) (*http.Response, error) {
+	path := "api/v1/collections/create_collection"
+
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, createRequest)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+	req.Header.Add("X-Modhash", modHash)
+
+	return s.client.Do(ctx, req, nil)
+}
+
+// PostDeleteCollection Delete a collection via its id.
+func (s *CollectionService) PostDeleteCollection(ctx context.Context, modHash string, collectionID string) (*http.Response, error) {
+	data := struct {
+		CollectionID string `json:"collection_id"`
+	}{CollectionID: collectionID}
+
+	path := "api/v1/collections/delete_collection"
+
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+	req.Header.Add("X-Modhash", modHash)
+
+	return s.client.Do(ctx, req, nil)
+}
+
+// PostFollowCollection Follow a collection.
+func (s *CollectionService) PostFollowCollection(ctx context.Context, modHash, collectionID string, follow bool) (*http.Response, error) {
+	data := struct {
+		CollectionID string `json:"collection_id"`
+		Follow       bool   `json:"follow"`
+	}{CollectionID: collectionID, Follow: follow}
+
+	path := "api/v1/collections/follow_collection"
+
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+	req.Header.Add("X-Modhash", modHash)
+
+	return s.client.Do(ctx, req, nil)
+}
+
+// PostRemoveLink Remove a post from a collection
+func (s *CollectionService) PostRemoveLink(ctx context.Context, modHash, collectionID, linkFullname string) (*http.Response, error) {
+	data := struct {
+		CollectionID string `json:"collection_id"`
+		LinkFullname string `json:"link_fullname"`
+	}{CollectionID: collectionID, LinkFullname: linkFullname}
+
 	path := "api/v1/collections/remove_post_in_collection"
 
-	form := url.Values{}
-	form.Set("link_fullname", postID)
-	form.Set("collection_id", collectionID)
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
+	req.Header.Add("X-Modhash", modHash)
 
 	return s.client.Do(ctx, req, nil)
 }
 
 // ReorderPosts reorders posts in a collection.
-func (s *CollectionService) ReorderPosts(ctx context.Context, collectionID string, postIDs ...string) (*Response, error) {
+func (s *CollectionService) ReorderPosts(ctx context.Context, modHash, collectionID string, linkIDs ...string) (*http.Response, error) {
+	data := struct {
+		CollectionID string `json:"collection_id"`
+		LinkIDs      string `json:"link_ids"`
+	}{CollectionID: collectionID, LinkIDs: strings.Join(linkIDs, ",")}
+
 	path := "api/v1/collections/reorder_collection"
 
-	form := url.Values{}
-	form.Set("collection_id", collectionID)
-	form.Set("link_ids", strings.Join(postIDs, ","))
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
+	}
+	req.Header.Add("X-Modhash", modHash)
+
+	return s.client.Do(ctx, req, nil)
+}
+
+// GetSubredditCollections Fetch collections for the subreddit
+func (s *CollectionService) GetSubredditCollections(ctx context.Context, id string) (*http.Response, error) {
+	data := struct {
+		SRFullname string `json:"sr_fullname"`
+	}{SRFullname: id}
+
+	path := "api/v1/collections/subreddit_collections"
+
+	req, err := s.client.NewJSONRequest(http.MethodGet, path, data)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
 	}
 
 	return s.client.Do(ctx, req, nil)
 }
 
-// UpdateTitle updates a collection's title.
-func (s *CollectionService) UpdateTitle(ctx context.Context, id string, title string) (*Response, error) {
-	path := "api/v1/collections/update_collection_title"
+// PostUpdateCollectionDescription updates a collection's description.
+func (s *CollectionService) PostUpdateCollectionDescription(ctx context.Context, modHash, collectionID, description string) (*http.Response, error) {
+	data := struct {
+		CollectionID string `json:"collection_id"`
+		Description  string `json:"description"`
+	}{CollectionID: collectionID, Description: description}
 
-	form := url.Values{}
-	form.Set("collection_id", id)
-	form.Set("title", title)
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.client.Do(ctx, req, nil)
-}
-
-// UpdateDescription updates a collection's description.
-func (s *CollectionService) UpdateDescription(ctx context.Context, id string, description string) (*Response, error) {
 	path := "api/v1/collections/update_collection_description"
 
-	form := url.Values{}
-	form.Set("collection_id", id)
-	form.Set("description", description)
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
+	req.Header.Add("X-Modhash", modHash)
 
 	return s.client.Do(ctx, req, nil)
 }
 
-// UpdateLayoutTimeline updates a collection's layout to the timeline format.
-func (s *CollectionService) UpdateLayoutTimeline(ctx context.Context, id string) (*Response, error) {
+// PostUpdateCollectionLayoutGallery updates a collection's layout to the gallery format.
+func (s *CollectionService) PostUpdateCollectionLayoutGallery(ctx context.Context, modHash, collectionID string, layout CollectionDisplayLayout) (*http.Response, error) {
+	data := struct {
+		CollectionID  string                  `json:"collection_id"`
+		DisplayLayout CollectionDisplayLayout `json:"display_layout"`
+	}{CollectionID: collectionID, DisplayLayout: layout}
+
 	path := "api/v1/collections/update_collection_display_layout"
 
-	form := url.Values{}
-	form.Set("collection_id", id)
-	form.Set("display_layout", "TIMELINE")
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
+	req.Header.Add("X-Modhash", modHash)
 
 	return s.client.Do(ctx, req, nil)
 }
 
-// UpdateLayoutGallery updates a collection's layout to the gallery format.
-func (s *CollectionService) UpdateLayoutGallery(ctx context.Context, id string) (*Response, error) {
-	path := "api/v1/collections/update_collection_display_layout"
+// PostUpdateCollectionTitle updates a collection's title.
+func (s *CollectionService) PostUpdateCollectionTitle(ctx context.Context, modHash, collectionID, title string) (*http.Response, error) {
+	data := struct {
+		CollectionID string `json:"collection_id"`
+		Title        string `json:"title"`
+	}{CollectionID: collectionID, Title: title}
 
-	form := url.Values{}
-	form.Set("collection_id", id)
-	form.Set("display_layout", "GALLERY")
+	path := "api/v1/collections/update_collection_title"
 
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
-
-	return s.client.Do(ctx, req, nil)
-}
-
-// Follow a collection.
-func (s *CollectionService) Follow(ctx context.Context, id string) (*Response, error) {
-	path := "api/v1/collections/follow_collection"
-
-	form := url.Values{}
-	form.Set("collection_id", id)
-	form.Set("follow", "true")
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.client.Do(ctx, req, nil)
-}
-
-// Unfollow a collection.
-func (s *CollectionService) Unfollow(ctx context.Context, id string) (*Response, error) {
-	path := "api/v1/collections/follow_collection"
-
-	form := url.Values{}
-	form.Set("collection_id", id)
-	form.Set("follow", "false")
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, err
-	}
+	req.Header.Add("X-Modhash", modHash)
 
 	return s.client.Do(ctx, req, nil)
 }
