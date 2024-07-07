@@ -2,11 +2,8 @@ package reddit
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
-	"strconv"
 )
 
 // GoldService handles communication with the gold
@@ -17,32 +14,32 @@ type GoldService struct {
 	client *Client
 }
 
-// Gild the post or comment via its full ID.
+// PostGild the post or comment via its full ID.
 // This requires you to own Reddit coins and will consume them.
-func (s *GoldService) Gild(ctx context.Context, id string) (*Response, error) {
-	path := fmt.Sprintf("api/v1/gold/gild/%s", id)
+func (s *GoldService) PostGild(ctx context.Context, fullname string) (*http.Response, error) {
+	path := fmt.Sprintf("api/v1/gold/gild/%s", fullname)
+
 	req, err := s.client.NewRequest(http.MethodPost, path, nil)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
+
 	return s.client.Do(ctx, req, nil)
 }
 
-// Give the user between 1 and 36 (inclusive) months of gold.
+// PostGive the user between 1 and 36 (inclusive) months of gold.
 // This requires you to own Reddit coins and will consume them.
-func (s *GoldService) Give(ctx context.Context, username string, months int) (*Response, error) {
-	if months < 1 || months > 36 {
-		return nil, errors.New("months: must be between 1 and 36 (inclusive)")
-	}
+func (s *GoldService) PostGive(ctx context.Context, username string, months int) (*http.Response, error) {
+	data := struct {
+		Username string `json:"username"` // A valid, existing reddit username
+		Months   int    `json:"months"`   // an integer between 1 and 36
+	}{Username: username, Months: months}
 
 	path := fmt.Sprintf("api/v1/gold/give/%s", username)
 
-	form := url.Values{}
-	form.Set("months", strconv.Itoa(months))
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
 
 	return s.client.Do(ctx, req, nil)
