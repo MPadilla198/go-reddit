@@ -9,13 +9,11 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/google/go-querystring/query"
 	"golang.org/x/oauth2"
 )
 
@@ -83,7 +81,6 @@ type Client struct {
 	Gold           *GoldService
 	LinkAndComment *LinkAndCommentService
 	Listings       *ListingsService
-	LiveThread     *LiveThreadService
 	Message        *MessageService
 	Moderation     *ModerationService
 	Multi          *MultiService
@@ -117,7 +114,6 @@ func newClient() *Client {
 	client.Gold = &GoldService{client: client}
 	client.LinkAndComment = &LinkAndCommentService{client: client}
 	client.Listings = &ListingsService{client: client}
-	client.LiveThread = &LiveThreadService{client: client}
 	client.Message = &MessageService{client: client}
 	client.Moderation = &ModerationService{client: client}
 	client.Multi = &MultiService{client: client}
@@ -429,12 +425,7 @@ type Rate struct {
 }
 
 func (c *Client) getListing(ctx context.Context, path string, opts interface{}) (*Listing, *http.Response, error) {
-	path, err := addOptions(path, opts)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	req, err := c.NewRequest(http.MethodGet, path, nil)
+	req, err := c.NewJSONRequest(http.MethodGet, path, opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -449,12 +440,7 @@ func (c *Client) getListing(ctx context.Context, path string, opts interface{}) 
 }
 
 func (c *Client) getComment(ctx context.Context, path string, opts interface{}) (*Comment, *http.Response, error) {
-	path, err := addOptions(path, opts)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	req, err := c.NewRequest(http.MethodGet, path, nil)
+	req, err := c.NewJSONRequest(http.MethodGet, path, opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -469,12 +455,7 @@ func (c *Client) getComment(ctx context.Context, path string, opts interface{}) 
 }
 
 func (c *Client) getLink(ctx context.Context, path string, opts interface{}) (*Link, *http.Response, error) {
-	path, err := addOptions(path, opts)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	req, err := c.NewRequest(http.MethodGet, path, nil)
+	req, err := c.NewJSONRequest(http.MethodGet, path, opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -489,12 +470,7 @@ func (c *Client) getLink(ctx context.Context, path string, opts interface{}) (*L
 }
 
 func (c *Client) getSubreddit(ctx context.Context, path string, opts interface{}) (*Subreddit, *http.Response, error) {
-	path, err := addOptions(path, opts)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	req, err := c.NewRequest(http.MethodGet, path, nil)
+	req, err := c.NewJSONRequest(http.MethodGet, path, opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -509,12 +485,7 @@ func (c *Client) getSubreddit(ctx context.Context, path string, opts interface{}
 }
 
 func (c *Client) getMessage(ctx context.Context, path string, opts interface{}) (*Message, *http.Response, error) {
-	path, err := addOptions(path, opts)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	req, err := c.NewRequest(http.MethodGet, path, nil)
+	req, err := c.NewJSONRequest(http.MethodGet, path, opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -529,12 +500,7 @@ func (c *Client) getMessage(ctx context.Context, path string, opts interface{}) 
 }
 
 func (c *Client) getAccount(ctx context.Context, path string, opts interface{}) (*Account, *http.Response, error) {
-	path, err := addOptions(path, opts)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	req, err := c.NewRequest(http.MethodGet, path, nil)
+	req, err := c.NewJSONRequest(http.MethodGet, path, opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -549,12 +515,7 @@ func (c *Client) getAccount(ctx context.Context, path string, opts interface{}) 
 }
 
 func (c *Client) getAward(ctx context.Context, path string, opts interface{}) (*Award, *http.Response, error) {
-	path, err := addOptions(path, opts)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	req, err := c.NewRequest(http.MethodGet, path, nil)
+	req, err := c.NewJSONRequest(http.MethodGet, path, opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -569,12 +530,7 @@ func (c *Client) getAward(ctx context.Context, path string, opts interface{}) (*
 }
 
 func (c *Client) getMore(ctx context.Context, path string, opts interface{}) (*More, *http.Response, error) {
-	path, err := addOptions(path, opts)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	req, err := c.NewRequest(http.MethodGet, path, nil)
+	req, err := c.NewJSONRequest(http.MethodGet, path, opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -592,16 +548,16 @@ func (c *Client) getMore(ctx context.Context, path string, opts interface{}) (*M
 type ListingOptions struct {
 	// Maximum number of items to be returned.
 	// Generally, the default is 25 and max is 100.
-	Limit int `url:"limit,omitempty"`
+	Limit int `url:"limit"`
 	// The full ID of an item in the listing to use
 	// as the anchor point of the list. Only items
 	// appearing after it will be returned.
-	After string `url:"after,omitempty"`
+	After string `url:"after"`
 	// The full ID of an item in the listing to use
 	// as the anchor point of the list. Only items
 	// appearing before it will be returned.
 	Before   string `url:"before,omitempty"`
-	Count    int    `url:"count,omitempty"`
+	Count    int    `url:"count"`
 	Show     string `url:"show,omitempty"`
 	SrDetail bool   `url:"sr_detail,omitempty"`
 	Name     string `url:"name,omitempty"`
@@ -610,18 +566,23 @@ type ListingOptions struct {
 type ListingDuplicateOptions struct {
 	ListingOptions
 
-	Article        string `url:"article,omitempty"`
-	CrosspostsOnly bool   `url:"crossposts_only,omitempty"`
-	Sort           string `url:"sort,omitempty"`
-	SubredditName  string `url:"sr,omitempty"`
+	Article        string `url:"article"`
+	CrosspostsOnly bool   `url:"crossposts_only"`
+	Sort           string `url:"sort"` // one of (num_comments, new)
+	SubredditName  string `url:"sr"`
+}
+
+type ListingSubredditSortOptions struct {
+	ListingOptions
+
+	// G is one of (GLOBAL, US, AR, AU, BG, CA, CL, CO, HR, CZ, FI, FR, DE, GR, HU, IS, IN, IE, IT, JP, MY, MX, NZ, PH, PL, PT, PR, RO, RS, SG, ES, SE, TW, TH, TR, GB, US_WA, US_DE, US_DC, US_WI, US_WV, US_HI, US_FL, US_WY, US_NH, US_NJ, US_NM, US_TX, US_LA, US_NC, US_ND, US_NE, US_TN, US_NY, US_PA, US_CA, US_NV, US_VA, US_CO, US_AK, US_AL, US_AR, US_VT, US_IL, US_GA, US_IN, US_IA, US_OK, US_AZ, US_ID, US_CT, US_ME, US_MD, US_MA, US_OH, US_UT, US_MO, US_MN, US_MI, US_RI, US_KS, US_MT, US_MS, US_SC, US_KY, US_OR, US_SD)
+	// only for GET [/r/subreddit]/hot
+	G string `url:"g,omitempty"`
 }
 
 // ListingSubredditOptions defines possible options used when searching for subreddits.
 type ListingSubredditOptions struct {
 	ListingOptions
-	// G is one of (GLOBAL, US, AR, AU, BG, CA, CL, CO, HR, CZ, FI, FR, DE, GR, HU, IS, IN, IE, IT, JP, MY, MX, NZ, PH, PL, PT, PR, RO, RS, SG, ES, SE, TW, TH, TR, GB, US_WA, US_DE, US_DC, US_WI, US_WV, US_HI, US_FL, US_WY, US_NH, US_NJ, US_NM, US_TX, US_LA, US_NC, US_ND, US_NE, US_TN, US_NY, US_PA, US_CA, US_NV, US_VA, US_CO, US_AK, US_AL, US_AR, US_VT, US_IL, US_GA, US_IN, US_IA, US_OK, US_AZ, US_ID, US_CT, US_ME, US_MD, US_MA, US_OH, US_UT, US_MO, US_MN, US_MI, US_RI, US_KS, US_MT, US_MS, US_SC, US_KY, US_OR, US_SD)
-	// only for GET [/r/subreddit]/hot
-	G string `url:"g,omitempty"`
 	// T is one of (hour, day, week, month, year, all)
 	// only for GET [/r/subreddit]/sort → [/r/subreddit]/top and [/r/subreddit]/controversial
 	T string `url:"t,omitempty"`
@@ -743,30 +704,4 @@ type ListingWikiOptions struct {
 	ListingOptions
 	// Page is the name of an existing wiki page
 	Page string `url:"page"`
-}
-
-func addOptions(s string, opt interface{}) (string, error) {
-	v := reflect.ValueOf(opt)
-	if v.Kind() == reflect.Ptr && v.IsNil() {
-		return s, nil
-	}
-
-	origURL, err := url.Parse(s)
-	if err != nil {
-		return s, &InternalError{Message: err.Error()}
-	}
-
-	origValues := origURL.Query()
-
-	newValues, err := query.Values(opt)
-	if err != nil {
-		return s, &InternalError{Message: err.Error()}
-	}
-
-	for k, v := range newValues {
-		origValues[k] = v
-	}
-
-	origURL.RawQuery = origValues.Encode()
-	return origURL.String(), nil
 }
