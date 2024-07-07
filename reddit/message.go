@@ -2,13 +2,8 @@ package reddit
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
+	"fmt"
 	"net/http"
-	"net/url"
-	"strings"
-
-	"github.com/google/go-querystring/query"
 )
 
 // MessageService handles communication with the message
@@ -17,67 +12,6 @@ import (
 // Reddit API docs: https://www.reddit.com/dev/api/#section_messages
 type MessageService struct {
 	client *Client
-}
-
-type inboxThing struct {
-	Kind string   `json:"kind"`
-	Data *Message `json:"data"`
-}
-
-type inboxListing struct {
-	inboxThings
-	after string
-}
-
-func (l *inboxListing) After() string {
-	return l.after
-}
-
-// UnmarshalJSON implements the json.Unmarshaler interface.
-func (l *inboxListing) UnmarshalJSON(b []byte) error {
-	root := new(struct {
-		Data struct {
-			Things inboxThings `json:"children"`
-			After  string      `json:"after"`
-		} `json:"data"`
-	})
-
-	err := json.Unmarshal(b, root)
-	if err != nil {
-		return err
-	}
-
-	l.inboxThings = root.Data.Things
-	l.after = root.Data.After
-
-	return nil
-}
-
-type inboxThings struct {
-	Comments []*Message
-	Messages []*Message
-}
-
-// UnmarshalJSON implements the json.Unmarshaler interface.
-func (t *inboxThings) UnmarshalJSON(b []byte) error {
-	var things []inboxThing
-	if err := json.Unmarshal(b, &things); err != nil {
-		return err
-	}
-
-	t.add(things...)
-	return nil
-}
-
-func (t *inboxThings) add(things ...inboxThing) {
-	for _, thing := range things {
-		switch thing.Kind {
-		case kindComment:
-			t.Comments = append(t.Comments, thing.Data)
-		case kindMessage:
-			t.Messages = append(t.Messages, thing.Data)
-		}
-	}
 }
 
 // SendMessageRequest represents a request to send a message.
@@ -90,189 +24,176 @@ type SendMessageRequest struct {
 	FromSubreddit string `url:"from_sr,omitempty"`
 }
 
-// ReadAll marks all messages/comments as read. It queues up the task on Reddit's end.
-// A successful response returns 202 to acknowledge acceptance of the request.
-// This endpoint is heavily rate limited.
-func (s *MessageService) ReadAll(ctx context.Context) (*Response, error) {
-	path := "api/read_all_messages"
-	req, err := s.client.NewRequest(http.MethodPost, path, nil)
-	if err != nil {
-		return nil, err
-	}
-	return s.client.Do(ctx, req, nil)
-}
+// PostBlock For blocking the author of a thing via inbox. Only accessible to approved OAuth applications
+func (s *MessageService) PostBlock(ctx context.Context, modHash, fullname string) (*http.Response, error) {
+	data := struct {
+		ID string `json:"id"` // Fullname of a thing
+	}{ID: fullname}
 
-// Read marks a message/comment as read via its full ID.
-func (s *MessageService) Read(ctx context.Context, ids ...string) (*Response, error) {
-	if len(ids) == 0 {
-		return nil, errors.New("must provide at least 1 id")
-	}
-
-	path := "api/read_message"
-
-	form := url.Values{}
-	form.Set("id", strings.Join(ids, ","))
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.client.Do(ctx, req, nil)
-}
-
-// Unread marks a message/comment as unread via its full ID.
-func (s *MessageService) Unread(ctx context.Context, ids ...string) (*Response, error) {
-	if len(ids) == 0 {
-		return nil, errors.New("must provide at least 1 id")
-	}
-
-	path := "api/unread_message"
-
-	form := url.Values{}
-	form.Set("id", strings.Join(ids, ","))
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.client.Do(ctx, req, nil)
-}
-
-// Block the author of a post, comment or message via its full ID.
-func (s *MessageService) Block(ctx context.Context, id string) (*Response, error) {
 	path := "api/block"
 
-	form := url.Values{}
-	form.Set("id", id)
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
+	req.Header.Add("X-Modhash", modHash)
 
 	return s.client.Do(ctx, req, nil)
 }
 
-// Collapse messages.
-func (s *MessageService) Collapse(ctx context.Context, ids ...string) (*Response, error) {
-	if len(ids) == 0 {
-		return nil, errors.New("must provide at least 1 id")
-	}
+// PostMessageCollapse Collapse a message
+// See also: /api/uncollapse_message
+func (s *MessageService) PostMessageCollapse(ctx context.Context, modHash string, ids ...string) (*http.Response, error) {
+	data := struct {
+		IDs []string `json:"id"` // A comma-separated list of thing fullnames
+	}{IDs: ids}
 
 	path := "api/collapse_message"
 
-	form := url.Values{}
-	form.Set("id", strings.Join(ids, ","))
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
+	req.Header.Add("X-Modhash", modHash)
 
 	return s.client.Do(ctx, req, nil)
 }
 
-// Uncollapse messages.
-func (s *MessageService) Uncollapse(ctx context.Context, ids ...string) (*Response, error) {
-	if len(ids) == 0 {
-		return nil, errors.New("must provide at least 1 id")
+type MessageComposeOptions struct {
+	APIType            string `json:"api_type"`
+	FromSR             string `json:"from_sr"` // A subreddit name
+	GRecaptchaResponse string `json:"g_recaptcha_response"`
+	Subject            string `json:"subject"` //
+	Text               string `json:"text"`    // raw Markdown text
+	To                 string `json:"to"`      // the name of an existing user
+}
+
+// PostMessageCompose Handles message composition under /message/compose.
+func (s *MessageService) PostMessageCompose(ctx context.Context, modHash string, opts *MessageComposeOptions) (*http.Response, error) {
+	path := "api/compose"
+
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, opts)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
 	}
+	req.Header.Add("X-Modhash", modHash)
+
+	return s.client.Do(ctx, req, nil)
+}
+
+// PostMessageDelete Delete messages from the recipient's view of their inbox.
+func (s *MessageService) PostMessageDelete(ctx context.Context, modHash, id string) (*http.Response, error) {
+	data := struct {
+		ID string `json:"id"` // A thing fullnames
+	}{ID: id}
+
+	path := "api/del_msg"
+
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+	req.Header.Add("X-Modhash", modHash)
+
+	return s.client.Do(ctx, req, nil)
+}
+
+// PostReadAllMessages Queue up marking all messages for a user as read.
+// This may take some time, and returns 202 to acknowledge acceptance of the request.
+func (s *MessageService) PostReadAllMessages(ctx context.Context, modHash string, filterTypes ...string) (*http.Response, error) {
+	data := struct {
+		FilterTypes []string `json:"filter_types"` // A comma-separated list of items
+	}{FilterTypes: filterTypes}
+
+	path := "api/read_all_messages"
+
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+	req.Header.Add("X-Modhash", modHash)
+
+	return s.client.Do(ctx, req, nil)
+}
+
+// PostReadMessages Read marks a message/comment as read via its full ID.
+func (s *MessageService) PostReadMessages(ctx context.Context, modHash string, ids ...string) (*http.Response, error) {
+	data := struct {
+		ID []string `json:"id"` // A comma-separated list of thing fullnames
+	}{ID: ids}
+
+	path := "api/read_message"
+
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+	req.Header.Add("X-Modhash", modHash)
+
+	return s.client.Do(ctx, req, nil)
+}
+
+func (s *MessageService) PostUnblock(ctx context.Context, modHash, fullname string) (*http.Response, error) {
+	data := struct {
+		ID string `json:"id"` // A thing fullname
+	}{ID: fullname}
+
+	path := "api/unblock_subreddit"
+
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+	req.Header.Add("X-Modhash", modHash)
+
+	return s.client.Do(ctx, req, nil)
+}
+
+// PostUncollapseMessages Uncollapse a message
+// See also: /api/collapse_message
+func (s *MessageService) PostUncollapseMessages(ctx context.Context, modHash string, ids ...string) (*http.Response, error) {
+	data := struct {
+		ID []string `json:"id"` // A comma-separated list of thing fullnames
+	}{ID: ids}
 
 	path := "api/uncollapse_message"
 
-	form := url.Values{}
-	form.Set("id", strings.Join(ids, ","))
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
+	req.Header.Add("X-Modhash", modHash)
 
 	return s.client.Do(ctx, req, nil)
 }
 
-// Delete a message.
-func (s *MessageService) Delete(ctx context.Context, id string) (*Response, error) {
-	path := "api/del_msg"
+// PostUnreadMessages marks a message/comment as unread via its full ID.
+func (s *MessageService) PostUnreadMessages(ctx context.Context, modHash string, ids ...string) (*http.Response, error) {
+	data := struct {
+		ID []string `json:"id"` // A comma-separated list of thing fullnames
+	}{ID: ids}
 
-	form := url.Values{}
-	form.Set("id", id)
+	path := "api/unread_message"
 
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
+	req.Header.Add("X-Modhash", modHash)
 
 	return s.client.Do(ctx, req, nil)
 }
 
-// Send a message.
-func (s *MessageService) Send(ctx context.Context, sendRequest *SendMessageRequest) (*Response, error) {
-	if sendRequest == nil {
-		return nil, errors.New("*SendMessageRequest: cannot be nil")
-	}
+type MessagesWhereType string
 
-	path := "api/compose"
+const (
+	MessagesWhereInbox  MessagesWhereType = "inbox"
+	MessagesWhereUnread MessagesWhereType = "unread"
+	MessagesWhereSent   MessagesWhereType = "sent"
+)
 
-	form, err := query.Values(sendRequest)
-	if err != nil {
-		return nil, err
-	}
-	form.Set("api_type", "json")
+func (s *MessageService) GetMessageWhere(ctx context.Context, where MessagesWhereType, opts *ListingMessageOptions) (*Listing, *http.Response, error) {
+	path := fmt.Sprintf("message/%s", where)
 
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.client.Do(ctx, req, nil)
-}
-
-// Inbox returns comments and messages that appear in your inbox, respectively.
-func (s *MessageService) Inbox(ctx context.Context, opts *ListOptions) ([]*Message, []*Message, *Response, error) {
-	root, resp, err := s.inbox(ctx, "message/inbox", opts)
-	if err != nil {
-		return nil, nil, resp, err
-	}
-	return root.Comments, root.Messages, resp, nil
-}
-
-// InboxUnread returns unread comments and messages that appear in your inbox, respectively.
-func (s *MessageService) InboxUnread(ctx context.Context, opts *ListOptions) ([]*Message, []*Message, *Response, error) {
-	root, resp, err := s.inbox(ctx, "message/unread", opts)
-	if err != nil {
-		return nil, nil, resp, err
-	}
-	return root.Comments, root.Messages, resp, nil
-}
-
-// Sent returns messages that you've sent.
-func (s *MessageService) Sent(ctx context.Context, opts *ListOptions) ([]*Message, *Response, error) {
-	root, resp, err := s.inbox(ctx, "message/sent", opts)
-	if err != nil {
-		return nil, resp, err
-	}
-	return root.Messages, resp, nil
-}
-
-func (s *MessageService) inbox(ctx context.Context, path string, opts *ListOptions) (*inboxListing, *Response, error) {
-	path, err := addOptions(path, opts)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	req, err := s.client.NewRequest(http.MethodGet, path, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	root := new(inboxListing)
-	resp, err := s.client.Do(ctx, req, root)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return root, resp, nil
+	return s.client.getListing(ctx, path, opts)
 }
