@@ -4,12 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
-	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
-
-	"github.com/google/go-querystring/query"
 )
 
 // FlairService handles communication with the flair
@@ -20,543 +16,355 @@ type FlairService struct {
 	client *Client
 }
 
-// Flair is a tag that can be attached to a user or a post.
-type Flair struct {
-	ID   string `json:"id,omitempty"`
-	Type string `json:"type,omitempty"`
-	Text string `json:"text,omitempty"`
+type FlairType string
 
-	Color           string `json:"text_color,omitempty"`
-	BackgroundColor string `json:"background_color,omitempty"`
-	CSSClass        string `json:"css_class,omitempty"`
+const (
+	FlairTypeUser FlairType = "USER_FLAIR"
+	FlairTypeLink FlairType = "LINK_FLAIR"
+)
 
-	Editable bool `json:"text_editable"`
-	ModOnly  bool `json:"mod_only"`
-}
+// PostClearFlairTemplates deletes all user flair templates.
+func (s *FlairService) PostClearFlairTemplates(ctx context.Context, modHash, subreddit string, flairType FlairType) (*http.Response, error) {
+	data := struct {
+		APIType string    `json:"api_type"`
+		Type    FlairType `json:"flair_type"`
+	}{APIType: "json", Type: flairType}
 
-// FlairSummary is a condensed version of Flair.
-type FlairSummary struct {
-	User     string `json:"user,omitempty"`
-	Text     string `json:"flair_text,omitempty"`
-	CSSClass string `json:"flair_css_class,omitempty"`
-}
+	path := fmt.Sprintf("r/%s/api/clearflairtemplates", subreddit)
 
-// FlairChoice is a choice of flair when selecting one for yourself or for a post.
-type FlairChoice struct {
-	TemplateID string `json:"flair_template_id"`
-	Text       string `json:"flair_text"`
-	Editable   bool   `json:"flair_text_editable"`
-	Position   string `json:"flair_position"`
-	CSSClass   string `json:"flair_css_class"`
-}
-
-// FlairConfigureRequest represents a request to configure a subreddit's flair settings.
-// Not setting an attribute can have unexpected side effects, so assign every one just in case.
-type FlairConfigureRequest struct {
-	// Enable user flair in the subreddit.
-	UserFlairEnabled *bool `url:"flair_enabled,omitempty"`
-	// One of: left, right.
-	UserFlairPosition string `url:"flair_position,omitempty"`
-	// Allow users to assign their own flair.
-	UserFlairSelfAssignEnabled *bool `url:"flair_self_assign_enabled,omitempty"`
-
-	// One of: none, left, right.
-	PostFlairPosition string `url:"link_flair_position,omitempty"`
-	// Allow submitters to assign their own post flair.
-	PostFlairSelfAssignEnabled *bool `url:"link_flair_self_assign_enabled,omitempty"`
-}
-
-// FlairTemplateCreateOrUpdateRequest represents a request to create/update a flair template.
-// Not setting an attribute can have unexpected side effects, so assign every one just in case.
-type FlairTemplateCreateOrUpdateRequest struct {
-	// The id of the template. Only provide this if it's an update request.
-	// If provided and it's not a valid id, the template will be created.
-	ID string `url:"flair_template_id,omitempty"`
-
-	// One of: all, emoji, text.
-	AllowableContent string `url:"allowable_content,omitempty"`
-	// No longer than 64 characters.
-	Text string `url:"text,omitempty"`
-	// One of: light, dark.
-	TextColor string `url:"text_color,omitempty"`
-	// Allow user to edit the text of the flair.
-	TextEditable *bool `url:"text_editable,omitempty"`
-
-	ModOnly *bool `url:"mod_only,omitempty"`
-
-	// Between 1 and 10 (inclusive). Default: 10.
-	MaxEmojis *int `url:"max_emojis,omitempty"`
-
-	// One of: none, transparent, 6-digit rgb hex color, e.g. #AABBCC.
-	BackgroundColor string `url:"background_color,omitempty"`
-	CSSClass        string `url:"css_class,omitempty"`
-}
-
-// FlairTemplate is a generic flair structure that can users can use next to their username
-// or posts in a subreddit.
-type FlairTemplate struct {
-	ID string `json:"id"`
-	// USER_FLAIR (for users) or LINK_FLAIR (for posts).
-	Type    string `json:"flairType"`
-	ModOnly bool   `json:"modOnly"`
-
-	AllowableContent string              `json:"allowableContent"`
-	Text             string              `json:"text"`
-	TextType         string              `json:"type"`
-	TextColor        string              `json:"textColor"`
-	TextEditable     bool                `json:"textEditable"`
-	RichText         []map[string]string `json:"richtext"`
-
-	OverrideCSS     bool   `json:"overrideCss"`
-	MaxEmojis       int    `json:"maxEmojis"`
-	BackgroundColor string `json:"backgroundColor"`
-	CSSClass        string `json:"cssClass"`
-}
-
-// FlairSelectRequest represents a request to select a flair.
-type FlairSelectRequest struct {
-	// The id of the template.
-	ID string `url:"flair_template_id,omitempty"`
-	// No longer than 64 characters.
-	// Only use this if the flair is editable (it is by default if you're a mod of the subreddit).
-	Text string `url:"text,omitempty"`
-}
-
-// FlairChangeRequest represents a request to change a user's flair.
-// If Text and CSSClass are empty, the request will just clear the user's flair.
-type FlairChangeRequest struct {
-	User     string
-	Text     string
-	CSSClass string
-}
-
-// FlairChangeResponse represents a response to a FlairChangeRequest.
-type FlairChangeResponse struct {
-	// Whether or not the request was successful.
-	OK       bool              `json:"ok"`
-	Status   string            `json:"status"`
-	Warnings map[string]string `json:"warnings,omitempty"`
-	Errors   map[string]string `json:"errors,omitempty"`
-}
-
-// GetUserFlairs returns the user flairs from the subreddit.
-func (s *FlairService) GetUserFlairs(ctx context.Context, subreddit string) ([]*Flair, *Response, error) {
-	path := fmt.Sprintf("r/%s/api/user_flair_v2", subreddit)
-
-	req, err := s.client.NewRequest(http.MethodGet, path, nil)
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
 	if err != nil {
-		return nil, nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
-
-	var flairs []*Flair
-	resp, err := s.client.Do(ctx, req, &flairs)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return flairs, resp, nil
-}
-
-// GetPostFlairs returns the post flairs from the subreddit.
-func (s *FlairService) GetPostFlairs(ctx context.Context, subreddit string) ([]*Flair, *Response, error) {
-	path := fmt.Sprintf("r/%s/api/link_flair_v2", subreddit)
-
-	req, err := s.client.NewRequest(http.MethodGet, path, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var flairs []*Flair
-	resp, err := s.client.Do(ctx, req, &flairs)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return flairs, resp, nil
-}
-
-// ListUserFlairs returns all flairs of individual users in the subreddit.
-func (s *FlairService) ListUserFlairs(ctx context.Context, subreddit string) ([]*FlairSummary, *Response, error) {
-	path := fmt.Sprintf("r/%s/api/flairlist", subreddit)
-
-	req, err := s.client.NewRequest(http.MethodGet, path, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	root := new(struct {
-		UserFlairs []*FlairSummary `json:"users"`
-	})
-	resp, err := s.client.Do(ctx, req, root)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return root.UserFlairs, resp, nil
-}
-
-// Configure the subreddit's flair settings.
-func (s *FlairService) Configure(ctx context.Context, subreddit string, request *FlairConfigureRequest) (*Response, error) {
-	if request == nil {
-		return nil, errors.New("*FlairConfigureRequest: cannot be nil")
-	}
-
-	path := fmt.Sprintf("r/%s/api/flairconfig", subreddit)
-
-	form, err := query.Values(request)
-	if err != nil {
-		return nil, err
-	}
-	form.Set("api_type", "json")
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, err
-	}
+	req.Header.Add("X-Modhash", modHash)
 
 	return s.client.Do(ctx, req, nil)
 }
 
-// Enable your flair in the subreddit.
-func (s *FlairService) Enable(ctx context.Context, subreddit string) (*Response, error) {
-	path := fmt.Sprintf("r/%s/api/setflairenabled", subreddit)
+// PostSubredditDeleteFlair Delete the flair of the user.
+func (s *FlairService) PostSubredditDeleteFlair(ctx context.Context, modHash, subreddit, username string) (*http.Response, error) {
+	data := struct {
+		APIType string `json:"api_type"`
+		Name    string `json:"name"`
+	}{APIType: "json", Name: username}
 
-	form := url.Values{}
-	form.Set("api_type", "json")
-	form.Set("flair_enabled", "true")
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.client.Do(ctx, req, nil)
-}
-
-// Disable your flair in the subreddit.
-func (s *FlairService) Disable(ctx context.Context, subreddit string) (*Response, error) {
-	path := fmt.Sprintf("r/%s/api/setflairenabled", subreddit)
-
-	form := url.Values{}
-	form.Set("api_type", "json")
-	form.Set("flair_enabled", "false")
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.client.Do(ctx, req, nil)
-}
-
-// UpsertUserTemplate creates a user flair template, or updates it if the request.ID is valid.
-// It returns the created/updated flair template.
-func (s *FlairService) UpsertUserTemplate(ctx context.Context, subreddit string, request *FlairTemplateCreateOrUpdateRequest) (*FlairTemplate, *Response, error) {
-	if request == nil {
-		return nil, nil, errors.New("*FlairTemplateCreateOrUpdateRequest: cannot be nil")
-	}
-
-	path := fmt.Sprintf("r/%s/api/flairtemplate_v2", subreddit)
-
-	form, err := query.Values(request)
-	if err != nil {
-		return nil, nil, err
-	}
-	form.Set("api_type", "json")
-	form.Set("flair_type", "USER_FLAIR")
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	root := new(FlairTemplate)
-	resp, err := s.client.Do(ctx, req, root)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return root, resp, nil
-}
-
-// UpsertPostTemplate creates a post flair template, or updates it if the request.ID is valid.
-// It returns the created/updated flair template.
-func (s *FlairService) UpsertPostTemplate(ctx context.Context, subreddit string, request *FlairTemplateCreateOrUpdateRequest) (*FlairTemplate, *Response, error) {
-	if request == nil {
-		return nil, nil, errors.New("*FlairTemplateCreateOrUpdateRequest: cannot be nil")
-	}
-
-	path := fmt.Sprintf("r/%s/api/flairtemplate_v2", subreddit)
-
-	form, err := query.Values(request)
-	if err != nil {
-		return nil, nil, err
-	}
-	form.Set("api_type", "json")
-	form.Set("flair_type", "LINK_FLAIR")
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	root := new(FlairTemplate)
-	resp, err := s.client.Do(ctx, req, root)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return root, resp, nil
-}
-
-// Delete the flair of the user.
-func (s *FlairService) Delete(ctx context.Context, subreddit, username string) (*Response, error) {
 	path := fmt.Sprintf("r/%s/api/deleteflair", subreddit)
 
-	form := url.Values{}
-	form.Set("api_type", "json")
-	form.Set("name", username)
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
+	req.Header.Add("X-Modhash", modHash)
 
 	return s.client.Do(ctx, req, nil)
 }
 
-// DeleteTemplate deletes the flair template via its id.
-func (s *FlairService) DeleteTemplate(ctx context.Context, subreddit, id string) (*Response, error) {
+// PostSubredditDeleteFlairTemplate DeleteTemplate deletes the flair template via its id.
+func (s *FlairService) PostSubredditDeleteFlairTemplate(ctx context.Context, modHash, subreddit, flairTemplateID string) (*http.Response, error) {
+	data := struct {
+		APIType         string `json:"api_type"`
+		FlairTemplateID string `json:"flair_template_id"`
+	}{APIType: "json", FlairTemplateID: flairTemplateID}
+
 	path := fmt.Sprintf("r/%s/api/deleteflairtemplate", subreddit)
 
-	form := url.Values{}
-	form.Set("api_type", "json")
-	form.Set("flair_template_id", id)
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
+	req.Header.Add("X-Modhash", modHash)
 
 	return s.client.Do(ctx, req, nil)
 }
 
-// DeleteAllUserTemplates deletes all user flair templates.
-func (s *FlairService) DeleteAllUserTemplates(ctx context.Context, subreddit string) (*Response, error) {
-	path := fmt.Sprintf("r/%s/api/clearflairtemplates", subreddit)
+type FlairSubredditOptions struct {
+	APIType  string `json:"api_type"`
+	CSSClass string `json:"css_class"` // a valid subreddit image name
+	Link     string `json:"link"`      // fullname of a link
+	Name     string `json:"name"`      // a user by name
+	Text     string `json:"text"`      // a string no longer than 64 characters
+}
 
-	form := url.Values{}
-	form.Set("api_type", "json")
-	form.Set("flair_type", "USER_FLAIR")
+func (s *FlairService) PostSubredditFlair(ctx context.Context, modHash, subreddit string, opts FlairSubredditOptions) (*http.Response, error) {
+	path := fmt.Sprintf("r/%s/api/flair", subreddit)
 
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, opts)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
+	req.Header.Add("X-Modhash", modHash)
 
 	return s.client.Do(ctx, req, nil)
 }
 
-// DeleteAllPostTemplates deletes all post flair templates.
-func (s *FlairService) DeleteAllPostTemplates(ctx context.Context, subreddit string) (*Response, error) {
-	path := fmt.Sprintf("r/%s/api/clearflairtemplates", subreddit)
+// PatchSubredditFlairTemplateOrder Update the order of flair templates in the specified subreddit.
+// Order should contain every single flair id for that flair type; omitting any id will result in a loss of data.
+func (s *FlairService) PatchSubredditFlairTemplateOrder(ctx context.Context, modHash, subreddit string, flairType FlairType) (*http.Response, error) {
+	data := struct {
+		Type      FlairType `json:"flair_type"`
+		Subreddit string    `json:"subreddit"`
+	}{Type: flairType, Subreddit: subreddit}
 
-	form := url.Values{}
-	form.Set("api_type", "json")
-	form.Set("flair_type", "LINK_FLAIR")
+	path := fmt.Sprintf("r/%s/api/flair_template_order", subreddit)
 
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
+	req, err := s.client.NewJSONRequest(http.MethodPatch, path, data)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
+	req.Header.Add("X-Modhash", modHash)
 
 	return s.client.Do(ctx, req, nil)
 }
 
-// ReorderUserTemplates reorders the user flair templates in the order provided in the slice.
-// The order should contain every single flair id of this flair type; omitting any id will result in an error.
-func (s *FlairService) ReorderUserTemplates(ctx context.Context, subreddit string, ids []string) (*Response, error) {
-	path := fmt.Sprintf("api/v1/%s/flair_template_order/USER_FLAIR", subreddit)
-	req, err := s.client.NewJSONRequest(http.MethodPatch, path, ids)
+type FlairPosition string
+
+const (
+	FlairPositionLeft  FlairPosition = "left"
+	FlairPositionRight FlairPosition = "right"
+)
+
+type FlairConfigOptions struct {
+	APIType                    string        `json:"api_type"`
+	FlairEnabled               bool          `json:"flair_enabled"`
+	Position                   FlairPosition `json:"flair_position"`
+	FlairSelfAssignEnabled     bool          `json:"flair_self_assign_enabled"`
+	LinkFlairPosition          FlairPosition `json:"link_flair_position"`
+	LinkFlairSelfAssignEnabled bool          `json:"link_flair_self_assign_enabled"`
+}
+
+func (s *FlairService) PostSubredditFlairConfig(ctx context.Context, modHash, subreddit string, opts FlairConfigOptions) (*http.Response, error) {
+	path := fmt.Sprintf("r/%s/api/flairconfig", subreddit)
+
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, opts)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
-	return s.client.Do(ctx, req, nil)
-}
-
-// ReorderPostTemplates reorders the post flair templates in the order provided in the slice.
-// The order should contain every single flair id of this flair type; omitting any id will result in an error.
-func (s *FlairService) ReorderPostTemplates(ctx context.Context, subreddit string, ids []string) (*Response, error) {
-	path := fmt.Sprintf("api/v1/%s/flair_template_order/LINK_FLAIR", subreddit)
-	req, err := s.client.NewJSONRequest(http.MethodPatch, path, ids)
-	if err != nil {
-		return nil, err
-	}
-	return s.client.Do(ctx, req, nil)
-}
-
-// Choices returns a list of flairs you can assign to yourself in the subreddit, and your current one.
-func (s *FlairService) Choices(ctx context.Context, subreddit string) ([]*FlairChoice, *FlairChoice, *Response, error) {
-	return s.ChoicesOf(ctx, subreddit, s.client.Username)
-}
-
-// ChoicesOf returns a list of flairs the user can assign to themself in the subreddit, and their current one.
-// Unless the user is you, this only works if you're a moderator of the subreddit.
-func (s *FlairService) ChoicesOf(ctx context.Context, subreddit, username string) ([]*FlairChoice, *FlairChoice, *Response, error) {
-	path := fmt.Sprintf("r/%s/api/flairselector", subreddit)
-	form := url.Values{}
-	form.Set("name", username)
-	return s.choices(ctx, path, form)
-}
-
-// ChoicesForPost returns a list of flairs you can assign to an existing post, and the current one assigned to it.
-// If the post isn't yours, this only works if you're the moderator of the subreddit it's in.
-func (s *FlairService) ChoicesForPost(ctx context.Context, postID string) ([]*FlairChoice, *FlairChoice, *Response, error) {
-	path := "api/flairselector"
-	form := url.Values{}
-	form.Set("link", postID)
-	return s.choices(ctx, path, form)
-}
-
-// ChoicesForNewPost returns a list of flairs you can assign to a new post in a subreddit.
-func (s *FlairService) ChoicesForNewPost(ctx context.Context, subreddit string) ([]*FlairChoice, *Response, error) {
-	path := fmt.Sprintf("r/%s/api/flairselector", subreddit)
-
-	form := url.Values{}
-	form.Set("is_newlink", "true")
-
-	choices, _, resp, err := s.choices(ctx, path, form)
-	return choices, resp, err
-}
-
-func (s *FlairService) choices(ctx context.Context, path string, form url.Values) ([]*FlairChoice, *FlairChoice, *Response, error) {
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	root := new(struct {
-		Choices []*FlairChoice `json:"choices"`
-		Current *FlairChoice   `json:"current"`
-	})
-	resp, err := s.client.Do(ctx, req, root)
-	if err != nil {
-		return nil, nil, resp, err
-	}
-
-	return root.Choices, root.Current, resp, nil
-}
-
-// Select a flair to display next to your username in the subreddit.
-func (s *FlairService) Select(ctx context.Context, subreddit string, request *FlairSelectRequest) (*Response, error) {
-	return s.Assign(ctx, subreddit, s.client.Username, request)
-}
-
-// Assign a flair to another user in the subreddit.
-// This only works if you're a moderator of the subreddit, or if the user is you.
-func (s *FlairService) Assign(ctx context.Context, subreddit, user string, request *FlairSelectRequest) (*Response, error) {
-	if request == nil {
-		return nil, errors.New("*FlairSelectRequest: cannot be nil")
-	}
-
-	path := fmt.Sprintf("r/%s/api/selectflair", subreddit)
-
-	form, err := query.Values(request)
-	if err != nil {
-		return nil, err
-	}
-	form.Set("api_type", "json")
-	form.Set("name", user)
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, err
-	}
+	req.Header.Add("X-Modhash", modHash)
 
 	return s.client.Do(ctx, req, nil)
 }
 
-// SelectForPost assigns a flair to the post.
-// If the post isn't yours, you have to be a moderator of the post's subreddit for this to work.
-func (s *FlairService) SelectForPost(ctx context.Context, postID string, request *FlairSelectRequest) (*Response, error) {
-	if request == nil {
-		return nil, errors.New("*FlairSelectRequest: cannot be nil")
-	}
+// PostSubredditFlairCSV Change the flair of multiple users in the same subreddit with a single API call.
+// Requires a string 'flair_csv' which has up to 100 lines of the form 'user,flairtext,cssclass' (Lines beyond the 100th are ignored).
+// If both cssclass and flairtext are the empty string for a given user, instead clears that user's flair.
+// Returns an array of objects indicating if each flair setting was applied, or a reason for the failure.
+func (s *FlairService) PostSubredditFlairCSV(ctx context.Context, modHash, subreddit string, csvData [][]string) (*http.Response, error) {
+	var csvResult string
 
-	path := "api/selectflair"
-
-	form, err := query.Values(request)
+	w := csv.NewWriter(bytes.NewBufferString(csvResult))
+	err := w.WriteAll(csvData)
 	if err != nil {
-		return nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
-	form.Set("api_type", "json")
-	form.Set("link", postID)
+	w.Flush()
 
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.client.Do(ctx, req, nil)
-}
-
-// RemoveFromPost removes the flair from the post.
-// If the post isn't yours, you have to be a moderator of the post's subreddit for this to work.
-func (s *FlairService) RemoveFromPost(ctx context.Context, postID string) (*Response, error) {
-	path := "api/selectflair"
-
-	form := url.Values{}
-	form.Set("api_type", "json")
-	form.Set("link", postID)
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
-	if err != nil {
-		return nil, err
-	}
-
-	return s.client.Do(ctx, req, nil)
-}
-
-// Change the flair of multiple users in the subreddit at once.
-// You have to be a moderator of the subreddit for this to work.
-func (s *FlairService) Change(ctx context.Context, subreddit string, requests []FlairChangeRequest) ([]*FlairChangeResponse, *Response, error) {
-	if len(requests) == 0 || len(requests) > 100 {
-		return nil, nil, errors.New("requests: must provide between 1 and 100")
-	}
-
-	records := make([][]string, len(requests))
-	for i, req := range requests {
-		records[i] = []string{req.User, req.Text, req.CSSClass}
-	}
-
-	buf := new(bytes.Buffer)
-	w := csv.NewWriter(buf)
-
-	err := w.WriteAll(records)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	err = w.Error()
-	if err != nil {
-		return nil, nil, err
-	}
+	data := struct {
+		FlairCSV string `json:"flair_csv"`
+	}{FlairCSV: csvResult}
 
 	path := fmt.Sprintf("r/%s/api/flaircsv", subreddit)
 
-	form := url.Values{}
-	form.Set("flair_csv", buf.String())
-
-	req, err := s.client.NewRequest(http.MethodPost, path, form)
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
 	if err != nil {
-		return nil, nil, err
+		return nil, &InternalError{Message: err.Error()}
+	}
+	req.Header.Add("X-Modhash", modHash)
+
+	return s.client.Do(ctx, req, nil)
+}
+
+func (s *FlairService) GetSubredditFlairList(ctx context.Context, subreddit string, opts ListingOptions) (*Listing, *http.Response, error) {
+	path := fmt.Sprintf("r/%s/api/flairlist", subreddit)
+
+	return s.client.getListing(ctx, path, opts)
+}
+
+type FlairSelectorOptions struct {
+	IsNewLink bool   `json:"is_newlink,omitempty"`
+	Link      string `json:"link,omitempty"` // fullname of a link
+	Name      string `json:"name,omitempty"` // a user by name
+}
+
+// PostSubredditFlairSelector Return information about a user's flair options.
+// If link is given, return link flair options for an existing link.
+// If is_newlink is True, return link flairs options for a new link submission.
+// Otherwise, return user flair options for this subreddit.
+// The logged-in user's flair is also returned.
+// subreddit moderators may give a user by name to instead retrieve that user's flair.
+func (s *FlairService) PostSubredditFlairSelector(ctx context.Context, subreddit string, opts FlairSelectorOptions) (*http.Response, error) {
+	path := fmt.Sprintf("r/%s/api/flairselector", subreddit)
+
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, opts)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
 	}
 
-	var root []*FlairChangeResponse
-	resp, err := s.client.Do(ctx, req, &root)
+	return s.client.Do(ctx, req, nil)
+}
+
+type FlairTemplateOptions struct {
+	APIType         string    `json:"api_type"`
+	CSSClass        string    `json:"css_class"` // a valid subreddit name
+	FlairTemplateID string    `json:"flair_template_id"`
+	FlairType       FlairType `json:"flair_type"`
+	Text            string    `json:"text"` // a string no longer than 64 characters
+	TextEditable    bool      `json:"text_editable"`
+}
+
+// PostSubredditFlairTemplate Modify flair template for a subreddit.
+func (s *FlairService) PostSubredditFlairTemplate(ctx context.Context, modHash, subreddit string, opts FlairTemplateOptions) (*http.Response, error) {
+	path := fmt.Sprintf("r/%s/api/flairtemplate", subreddit)
+
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, opts)
 	if err != nil {
-		return nil, resp, err
+		return nil, &InternalError{Message: err.Error()}
+	}
+	req.Header.Add("X-Modhash", modHash)
+
+	return s.client.Do(ctx, req, nil)
+}
+
+type FlairAllowableContentType string
+
+const (
+	FlairAllowableContentAll   FlairAllowableContentType = "all"
+	FlairAllowableContentEmoji FlairAllowableContentType = "emoji"
+	FlairAllowableContentText  FlairAllowableContentType = "text"
+)
+
+type FlairTextColorType string
+
+const (
+	FlairTextColorLight FlairTextColorType = "light"
+	FlairTextColorDark  FlairTextColorType = "dark"
+)
+
+type FlairTemplateV2Options struct {
+	AllowableContent FlairAllowableContentType `json:"allowable_content"`
+	APIType          string                    `json:"api_type"`
+	BackgroundColor  string                    `json:"background_color"` // a 6-digit rgb hex color, e.g. #AABBCC
+	CSSClass         string                    `json:"css_class"`        // a valid subreddit name
+	FlairTemplateID  string                    `json:"flair_template_id"`
+	FlairType        FlairType                 `json:"flair_type"`
+	MaxEmojis        int                       `json:"max_emojis"` // an integer between 1 and 10 (default: 10)
+	ModOnly          bool                      `json:"mod_only"`
+	OverrideCSS      bool                      `json:"override_css"`
+	Text             string                    `json:"text"` // a string no longer than 64 characters
+	TextColor        FlairTextColorType        `json:"text_color"`
+	TextEditable     bool                      `json:"text_editable"`
+}
+
+// PostSubredditFlairTemplateV2 Create or update a flair template.
+// This new endpoint is primarily used for the redesign.
+func (s *FlairService) PostSubredditFlairTemplateV2(ctx context.Context, modHash, subreddit string, opts FlairTemplateV2Options) (*http.Response, error) {
+	path := fmt.Sprintf("r/%s/api/flairtemplate_v2", subreddit)
+
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, opts)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+	req.Header.Add("X-Modhash", modHash)
+
+	return s.client.Do(ctx, req, nil)
+}
+
+// GetSubredditLinkFlair Return list of available link flair for the current subreddit.
+// Will not return flair if the user cannot set their own link flair and is not a moderator that can set flair.
+func (s *FlairService) GetSubredditLinkFlair(ctx context.Context, subreddit string) (*http.Response, error) {
+	path := fmt.Sprintf("r/%s/api/link_flair", subreddit)
+
+	req, err := s.client.NewJSONRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
 	}
 
-	return root, resp, nil
+	return s.client.Do(ctx, req, nil)
+}
+
+// GetSubredditLinkFlairV2 Return list of available link flair for the current subreddit.
+// Will not return flair if the user cannot set their own link flair and is not a moderator that can set flair.
+func (s *FlairService) GetSubredditLinkFlairV2(ctx context.Context, subreddit string) (*http.Response, error) {
+	path := fmt.Sprintf("r/%s/api/link_flair_v2", subreddit)
+
+	req, err := s.client.NewJSONRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+
+	return s.client.Do(ctx, req, nil)
+}
+
+type FlairReturnRtsonType string
+
+const (
+	FlairReturnRtsonAll  FlairReturnRtsonType = "all"
+	FlairReturnRtsonOnly FlairReturnRtsonType = "only"
+	FlairReturnRtsonNone FlairReturnRtsonType = "none"
+)
+
+type FlairSubredditSelectOptions struct {
+	APIType         string               `json:"api_type"`
+	BackgroundColor string               `json:"background_color"`  // a 6-digit rgb hex color, e.g. #AABBCC
+	CSSClass        string               `json:"css_class"`         // a valid subreddit name
+	FlairTemplateId string               `json:"flair_template_id"` //
+	Link            string               `json:"link"`              // a fullname of a link
+	Name            string               `json:"name"`              // a user by name
+	ReturnRtson     FlairReturnRtsonType `json:"return_rtson"`      // [all|only|none]: "all" saves attributes and returns rtjson "only" only returns rtjson"none" only saves attributes
+	Text            string               `json:"text"`              // a string no longer than 64 characters
+	TextColor       FlairTextColorType   `json:"text_color"`
+}
+
+func (s *FlairService) PostSubredditSelectFlair(ctx context.Context, modHash, subreddit string, opts FlairSubredditSelectOptions) (*http.Response, error) {
+	path := fmt.Sprintf("r/%s/api/selectflair", subreddit)
+
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, opts)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+	req.Header.Add("X-Modhash", modHash)
+
+	return s.client.Do(ctx, req, nil)
+}
+
+func (s *FlairService) PostSubredditSetFlairEnabled(ctx context.Context, modHash, subreddit string, flairEnabled bool) (*http.Response, error) {
+	data := struct {
+		APIType      string `json:"api_type"`
+		FlairEnabled bool   `json:"flair_enabled"`
+	}{APIType: "json", FlairEnabled: flairEnabled}
+
+	path := fmt.Sprintf("r/%s/api/setflairenabled", subreddit)
+
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+	req.Header.Add("X-Modhash", modHash)
+
+	return s.client.Do(ctx, req, nil)
+}
+
+// GetSubredditUserFlair Return list of available user flair for the current subreddit.
+// Will not return flair if flair is disabled on the subreddit, the user cannot set their own flair, or they are not a moderator that can set flair.
+func (s *FlairService) GetSubredditUserFlair(ctx context.Context, subreddit string) (*http.Response, error) {
+	path := fmt.Sprintf("r/%s/api/user_flair", subreddit)
+
+	req, err := s.client.NewJSONRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+
+	return s.client.Do(ctx, req, nil)
+}
+
+// GetSubredditUserFlairV2 Return list of available user flair for the current subreddit.
+// If user is not a mod of the subreddit, this endpoint filters out mod_only templates.
+func (s *FlairService) GetSubredditUserFlairV2(ctx context.Context, subreddit string) (*http.Response, error) {
+	path := fmt.Sprintf("r/%s/api/user_flair_v2", subreddit)
+
+	req, err := s.client.NewJSONRequest(http.MethodGet, path, nil)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+
+	return s.client.Do(ctx, req, nil)
 }
