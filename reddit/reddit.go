@@ -75,24 +75,23 @@ type Client struct {
 	// This is the client's user ID in Reddit's database.
 	redditID string
 
-	Account    *AccountService
-	Captcha    *CaptchaService
-	Collection *CollectionService
-	Comment    *CommentService
-	Emoji      *EmojiService
-	Flair      *FlairService
-	Gold       *GoldService
-	Listings   *ListingsService
-	LiveThread *LiveThreadService
-	Message    *MessageService
-	Moderation *ModerationService
-	Multi      *MultiService
-	Post       *PostService
-	Stream     *StreamService
-	Subreddit  *SubredditService
-	User       *UserService
-	Widget     *WidgetService
-	Wiki       *WikiService
+	Account        *AccountService
+	Captcha        *CaptchaService
+	Collection     *CollectionService
+	Emoji          *EmojiService
+	Flair          *FlairService
+	Gold           *GoldService
+	LinkAndComment *LinkAndCommentService
+	Listings       *ListingsService
+	LiveThread     *LiveThreadService
+	Message        *MessageService
+	Moderation     *ModerationService
+	Multi          *MultiService
+	Stream         *StreamService
+	Subreddit      *SubredditService
+	User           *UserService
+	Widget         *WidgetService
+	Wiki           *WikiService
 
 	oauth2Transport *oauth2.Transport
 
@@ -116,6 +115,7 @@ func newClient() *Client {
 	client.Emoji = &EmojiService{client: client}
 	client.Flair = &FlairService{client: client}
 	client.Gold = &GoldService{client: client}
+	client.LinkAndComment = &LinkAndCommentService{client: client}
 	client.Listings = &ListingsService{client: client}
 	client.LiveThread = &LiveThreadService{client: client}
 	client.Message = &MessageService{client: client}
@@ -126,10 +126,6 @@ func newClient() *Client {
 	client.User = &UserService{client: client}
 	client.Widget = &WidgetService{client: client}
 	client.Wiki = &WikiService{client: client}
-
-	postAndCommentService := &postAndCommentService{client: client}
-	client.Comment = &CommentService{client: client, postAndCommentService: postAndCommentService}
-	client.Post = &PostService{client: client, postAndCommentService: postAndCommentService}
 
 	return client
 }
