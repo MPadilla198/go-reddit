@@ -289,7 +289,7 @@ func parseRate(r *http.Response) Rate {
 	return rate
 }
 
-// Do sends an API request and returns the API response. The API response is JSON decoded and stored in the value
+// Do send an API request and returns the API response. The API response is JSON decoded and stored in the value
 // pointed to by v, or returned as an error if an API error has occurred. If v implements the io.Writer interface,
 // the raw response will be written to v, without attempting to decode it.
 func (c *Client) Do(ctx context.Context, req *http.Request, v interface{}) (*http.Response, error) {
@@ -548,28 +548,28 @@ func (c *Client) getMore(ctx context.Context, path string, opts interface{}) (*M
 type ListingOptions struct {
 	// Maximum number of items to be returned.
 	// Generally, the default is 25 and max is 100.
-	Limit int `url:"limit"`
+	Limit int `json:"limit"`
 	// The full ID of an item in the listing to use
 	// as the anchor point of the list. Only items
 	// appearing after it will be returned.
-	After string `url:"after"`
+	After string `json:"after"`
 	// The full ID of an item in the listing to use
 	// as the anchor point of the list. Only items
 	// appearing before it will be returned.
-	Before   string `url:"before,omitempty"`
-	Count    int    `url:"count"`
-	Show     string `url:"show,omitempty"`
-	SrDetail bool   `url:"sr_detail,omitempty"`
-	Name     string `url:"name,omitempty"`
+	Before   string `json:"before,omitempty"`
+	Count    int    `json:"count"`
+	Show     string `json:"show,omitempty"`
+	SrDetail bool   `json:"sr_detail,omitempty"`
+	Name     string `json:"name,omitempty"`
 }
 
 type ListingDuplicateOptions struct {
 	ListingOptions
 
-	Article        string `url:"article"`
-	CrosspostsOnly bool   `url:"crossposts_only"`
-	Sort           string `url:"sort"` // one of (num_comments, new)
-	SubredditName  string `url:"sr"`
+	Article        string `json:"article"`
+	CrosspostsOnly bool   `json:"crossposts_only"`
+	Sort           string `json:"sort"` // one of (num_comments, new)
+	SubredditName  string `json:"sr"`
 }
 
 type ListingSubredditSortOptions struct {
@@ -577,7 +577,7 @@ type ListingSubredditSortOptions struct {
 
 	// G is one of (GLOBAL, US, AR, AU, BG, CA, CL, CO, HR, CZ, FI, FR, DE, GR, HU, IS, IN, IE, IT, JP, MY, MX, NZ, PH, PL, PT, PR, RO, RS, SG, ES, SE, TW, TH, TR, GB, US_WA, US_DE, US_DC, US_WI, US_WV, US_HI, US_FL, US_WY, US_NH, US_NJ, US_NM, US_TX, US_LA, US_NC, US_ND, US_NE, US_TN, US_NY, US_PA, US_CA, US_NV, US_VA, US_CO, US_AK, US_AL, US_AR, US_VT, US_IL, US_GA, US_IN, US_IA, US_OK, US_AZ, US_ID, US_CT, US_ME, US_MD, US_MA, US_OH, US_UT, US_MO, US_MN, US_MI, US_RI, US_KS, US_MT, US_MS, US_SC, US_KY, US_OR, US_SD)
 	// only for GET [/r/subreddit]/hot
-	G string `url:"g,omitempty"`
+	G string `json:"g,omitempty"`
 }
 
 // ListingSubredditOptions defines possible options used when searching for subreddits.
@@ -585,7 +585,7 @@ type ListingSubredditOptions struct {
 	ListingOptions
 	// T is one of (hour, day, week, month, year, all)
 	// only for GET [/r/subreddit]/sort → [/r/subreddit]/top and [/r/subreddit]/controversial
-	T string `url:"t,omitempty"`
+	T string `json:"t,omitempty"`
 	// User is a valid, existing reddit username
 	// only for GET [/r/subreddit]/about/SubredditAboutWhere
 	//→ [/r/subreddit]/about/banned
@@ -594,20 +594,20 @@ type ListingSubredditOptions struct {
 	//→ [/r/subreddit]/about/contributors
 	//→ [/r/subreddit]/about/wikicontributors
 	//→ [/r/subreddit]/about/moderators
-	User string `url:"user,omitempty"`
+	User string `json:"user,omitempty"`
 
 	// Q is a search query
 	// only for GET /subreddits/search and GET /users/search
-	Q string `url:"q,omitempty"`
-	// SearchQueryID is a uuid
+	Q string `json:"q,omitempty"`
+	// SearchQueryID is an uuid
 	// only for GET /subreddits/search and GET /users/search
-	SearchQueryID string `url:"search_query_id,omitempty"`
+	SearchQueryID string `json:"search_query_id,omitempty"`
 	// ShowUsers is
 	// only for GET /subreddits/search
-	ShowUsers bool `url:"show_users,omitempty"`
+	ShowUsers bool `json:"show_users,omitempty"`
 	// TypeaheadActive is
 	// only for GET /subreddits/search and GET /users/search
-	TypeaheadActive *bool `url:"typeahead_active,omitempty"`
+	TypeaheadActive *bool `json:"typeahead_active,omitempty"`
 }
 
 // ListingLiveOptions defines possible options used when searching for subreddits, only for GET /live/thread
@@ -615,17 +615,114 @@ type ListingLiveOptions struct {
 	ListingOptions
 	// Stylesr is a subreddit name
 	// only for GET /live/thread
-	Stylesr string `url:"stylesr,omitempty"`
+	Stylesr string `json:"stylesr,omitempty"`
 }
 
 // ListingMessageOptions , only for GET /message/SubredditAboutWhere → /message/inbox , /message/unread , /message/sent
 type ListingMessageOptions struct {
 	ListingOptions
 
-	Mark       bool   `url:"mark,omitempty"`
-	MaxReplies int    `url:"max_replies,omitempty"`
-	Mid        string `url:"mid,omitempty"`
+	Mark       bool   `json:"mark,omitempty"`
+	MaxReplies int    `json:"max_replies,omitempty"`
+	Mid        string `json:"mid,omitempty"`
 }
+
+type ModerationActionType string
+
+const (
+	ModerationActionBanUser                        ModerationActionType = "banuser"
+	ModerationActionUnbanUser                      ModerationActionType = "unbanuser"
+	ModerationActionSpamLink                       ModerationActionType = "spamlink"
+	ModerationActionRemoveLink                     ModerationActionType = "removelink"
+	ModerationActionApproveLink                    ModerationActionType = "approvelink"
+	ModerationActionSpamComment                    ModerationActionType = "spamcomment"
+	ModerationActionRemoveComment                  ModerationActionType = "removecomment"
+	ModerationActionApproveComment                 ModerationActionType = "approvecomment"
+	ModerationActionAddModerator                   ModerationActionType = "addmoderator"
+	ModerationActionShowComment                    ModerationActionType = "showcomment"
+	ModerationActionInviteModerator                ModerationActionType = "invitemoderator"
+	ModerationActionUninviteModerator              ModerationActionType = "uninvitemoderator"
+	ModerationActionAcceptModeratorInvite          ModerationActionType = "acceptmoderatorinvite"
+	ModerationActionRemoveModerator                ModerationActionType = "removemoderator"
+	ModerationActionAddContributor                 ModerationActionType = "addcontributor"
+	ModerationActionRemoveContributor              ModerationActionType = "removecontributor"
+	ModerationActionEditSettings                   ModerationActionType = "editsettings"
+	ModerationActionEditFlair                      ModerationActionType = "editflair"
+	ModerationActionDistinguish                    ModerationActionType = "distinguish"
+	ModerationActionMarkNSFW                       ModerationActionType = "marknsfw"
+	ModerationActionWikiBanned                     ModerationActionType = "wikibanned"
+	ModerationActionWikiContributor                ModerationActionType = "wikicontributor"
+	ModerationActionWikiUnbanned                   ModerationActionType = "wikiunbanned"
+	ModerationActionWikiPageListed                 ModerationActionType = "wikipagelisted"
+	ModerationActionRemoveWikiContributor          ModerationActionType = "removewikicontributor"
+	ModerationActionWikiRevise                     ModerationActionType = "wikirevise"
+	ModerationActionWikiPermissionLevel            ModerationActionType = "wikipermlevel"
+	ModerationActionIgnoreReports                  ModerationActionType = "ignorereports"
+	ModerationActionUnignoreReports                ModerationActionType = "unignorereports"
+	ModerationActionSetPermissions                 ModerationActionType = "setpermissions"
+	ModerationActionSetSuggestedSort               ModerationActionType = "setsuggestedsort"
+	ModerationActionSticky                         ModerationActionType = "sticky"
+	ModerationActionUnsticky                       ModerationActionType = "unsticky"
+	ModerationActionSetContestMode                 ModerationActionType = "setcontestmode"
+	ModerationActionUnsetContestMode               ModerationActionType = "unsetcontestmode"
+	ModerationActionLock                           ModerationActionType = "lock"
+	ModerationActionUnlock                         ModerationActionType = "unlock"
+	ModerationActionMuteUser                       ModerationActionType = "muteuser"
+	ModerationActionUnmuteUser                     ModerationActionType = "unmuteuser"
+	ModerationActionCreateRule                     ModerationActionType = "createrule"
+	ModerationActionEditRule                       ModerationActionType = "editrule"
+	ModerationActionReorderRules                   ModerationActionType = "reorderrules"
+	ModerationActionDeleteRule                     ModerationActionType = "deleterule"
+	ModerationActionSpoiler                        ModerationActionType = "spoiler"
+	ModerationActionUnspoiler                      ModerationActionType = "unspoiler"
+	ModerationActionModmailEnrollment              ModerationActionType = "modmail_enrollment"
+	ModerationActionCommunityStatus                ModerationActionType = "community_status"
+	ModerationActionCommunityStyling               ModerationActionType = "community_styling"
+	ModerationActionCommunityWelcomePage           ModerationActionType = "community_welcome_page"
+	ModerationActionCommunityWidgets               ModerationActionType = "community_widgets"
+	ModerationActionMarkOriginalContent            ModerationActionType = "markoriginalcontent"
+	ModerationActionCollections                    ModerationActionType = "collections"
+	ModerationActionEvents                         ModerationActionType = "events"
+	ModerationActionHiddenAward                    ModerationActionType = "hidden_award"
+	ModerationActionAddCommunityTopics             ModerationActionType = "add_community_topics"
+	ModerationActionRemoveCommunityTopics          ModerationActionType = "remove_community_topics"
+	ModerationActionCreateScheduledPost            ModerationActionType = "create_scheduled_post"
+	ModerationActionEditScheduledPost              ModerationActionType = "edit_scheduled_post"
+	ModerationActionDeleteScheduledPost            ModerationActionType = "delete_scheduled_post"
+	ModerationActionSubmitScheduledPost            ModerationActionType = "submit_scheduled_post"
+	ModerationActionEditCommentRequirements        ModerationActionType = "edit_comment_requirements"
+	ModerationActionEditPostRequirements           ModerationActionType = "edit_post_requirements"
+	ModerationActionInviteSubscriber               ModerationActionType = "invitesubscriber"
+	ModerationActionSubmitContestRatingSurvey      ModerationActionType = "submit_content_rating_survey"
+	ModerationActionAdjustPostCrowControlLevel     ModerationActionType = "adjust_post_crowd_control_level"
+	ModerationActionEnablePostCrowdControlFilter   ModerationActionType = "enable_post_crowd_control_filter"
+	ModerationActionDisablePostCrowdControlFilter  ModerationActionType = "disable_post_crowd_control_filter"
+	ModerationActionDeleteOverriddenClassification ModerationActionType = "deleteoverriddenclassification"
+	ModerationAction                               ModerationActionType = "overrideclassification"
+	ModerationActionReorderModerators              ModerationActionType = "reordermoderators"
+	ModerationActionSnoozeReports                  ModerationActionType = "snoozereports"
+	ModerationActionUnsnoozeReports                ModerationActionType = "unsnoozereports"
+	ModerationActionAddNote                        ModerationActionType = "addnote"
+	ModerationActionDeleteNote                     ModerationActionType = "deletenote"
+	ModerationActionAddRemovalReason               ModerationActionType = "addremovalreason"
+	ModerationActionCreateRemovalReason            ModerationActionType = "createremovalreason"
+	ModerationActionUpdateRemovalReason            ModerationActionType = "updateremovalreason"
+	ModerationActionDeleteRemovalReason            ModerationActionType = "deleteremovalreason"
+	ModerationActionReorderRemovalReason           ModerationActionType = "reorderremovalreason"
+	ModerationActionDevPlatformAppChanged          ModerationActionType = "dev_platform_app_changed"
+	ModerationActionDevPlatformAppDisabled         ModerationActionType = "dev_platform_app_disabled"
+	ModerationActionDevPlatformAppEnabled          ModerationActionType = "dev_platform_app_enabled"
+	ModerationActionDevPlatformAppInstalled        ModerationActionType = "dev_platform_app_installed"
+	ModerationActionDevPlatformAppUninstalled      ModerationActionType = "dev_platform_app_uninstalled"
+	ModerationActionEditSavedResponse              ModerationActionType = "edit_saved_response"
+	ModerationActionChatApproveMessage             ModerationActionType = "chat_approve_message"
+	ModerationActionChatRemoveMessage              ModerationActionType = "chat_remove_message"
+	ModerationActionChatBanUser                    ModerationActionType = "chat_ban_user"
+	ModerationActionChatUnbanUser                  ModerationActionType = "chat_unban_user"
+	ModerationActionChatInviteHost                 ModerationActionType = "chat_invite_host"
+	ModerationActionChatRemoveHost                 ModerationActionType = "chat_remove_host"
+	ModerationActionApproveAward                   ModerationActionType = "approve_award"
+)
 
 // ListingModerationOptions defines possible options used when getting moderation actions in a subreddit.
 type ListingModerationOptions struct {
@@ -633,10 +730,9 @@ type ListingModerationOptions struct {
 
 	// Moderator is a specified mod filter
 	// only for GET [/r/subreddit]/about/log
-	Moderator string `url:"mod,omitempty"`
-	// Type is one of (banuser, unbanuser, spamlink, removelink, approvelink, spamcomment, removecomment, approvecomment, addmoderator, showcomment, invitemoderator, uninvitemoderator, acceptmoderatorinvite, removemoderator, addcontributor, removecontributor, editsettings, editflair, distinguish, marknsfw, wikibanned, wikicontributor, wikiunbanned, wikipagelisted, removewikicontributor, wikirevise, wikipermlevel, ignorereports, unignorereports, setpermissions, setsuggestedsort, sticky, unsticky, setcontestmode, unsetcontestmode, lock, unlock, muteuser, unmuteuser, createrule, editrule, reorderrules, deleterule, spoiler, unspoiler, modmail_enrollment, community_status, community_styling, community_welcome_page, community_widgets, markoriginalcontent, collections, events, hidden_award, add_community_topics, remove_community_topics, create_scheduled_post, edit_scheduled_post, delete_scheduled_post, submit_scheduled_post, edit_comment_requirements, edit_post_requirements, invitesubscriber, submit_content_rating_survey, adjust_post_crowd_control_level, enable_post_crowd_control_filter, disable_post_crowd_control_filter, deleteoverriddenclassification, overrideclassification, reordermoderators, snoozereports, unsnoozereports, addnote, deletenote, addremovalreason, createremovalreason, updateremovalreason, deleteremovalreason, reorderremovalreason, dev_platform_app_changed, dev_platform_app_disabled, dev_platform_app_enabled, dev_platform_app_installed, dev_platform_app_uninstalled, edit_saved_response, chat_approve_message, chat_remove_message, chat_ban_user, chat_unban_user, chat_invite_host, chat_remove_host, approve_award)
+	Moderator string `json:"mod,omitempty"`
 	// only for GET [/r/subreddit]/about/log
-	Type string `url:"type,omitempty"`
+	Type ModerationActionType `json:"type"`
 
 	// Location is
 	// only for GET [/r/subreddit]/about/locationread
@@ -645,7 +741,7 @@ type ListingModerationOptions struct {
 	//→ [/r/subreddit]/about/modqueue
 	//→ [/r/subreddit]/about/unmoderated
 	//→ [/r/subreddit]/about/edited
-	Location string `url:"location,omitempty"`
+	Location string `json:"location,omitempty"`
 	// Only is one of (links, comments, chat_comments)
 	// only for GET [/r/subreddit]/about/locationread
 	//→ [/r/subreddit]/about/reports
@@ -653,7 +749,7 @@ type ListingModerationOptions struct {
 	//→ [/r/subreddit]/about/modqueue
 	//→ [/r/subreddit]/about/unmoderated
 	//→ [/r/subreddit]/about/edited
-	Only string `url:"only,omitempty"`
+	Only string `json:"only,omitempty"`
 }
 
 // ListingSearchOptions defines possible options used when searching for posts within a subreddit.
@@ -661,17 +757,17 @@ type ListingModerationOptions struct {
 type ListingSearchOptions struct {
 	ListingOptions
 	// Category is a string no longer than 5 characters
-	Category      string `url:"category,omitempty"`
-	IncludeFacets bool   `url:"include_facets,omitempty"`
+	Category      string `json:"category,omitempty"`
+	IncludeFacets bool   `json:"include_facets,omitempty"`
 	// Q is a string no longer than 512 characters
-	Q                 string `url:"q,omitempty"`
-	RestrictSubreddit bool   `url:"restrict_sr,omitempty"`
+	Q                 string `json:"q,omitempty"`
+	RestrictSubreddit bool   `json:"restrict_sr,omitempty"`
 	// Sort is one of (relevance, hot, top, new, comments)
-	Sort string `url:"sort,omitempty"`
+	Sort string `json:"sort,omitempty"`
 	// T is one of (hour, day, week, month, year, all)
-	T string `url:"t,omitempty"`
+	T string `json:"t,omitempty"`
 	// Type is (optional) comma-delimited list of result types (sr, link, user)
-	Type string `url:"type,omitempty"`
+	Type string `json:"type,omitempty"`
 }
 
 // ListingUserOptions is
@@ -687,15 +783,15 @@ type ListingSearchOptions struct {
 type ListingUserOptions struct {
 	ListingOptions
 	// Context is an integer between 2 and 10
-	Context int `url:"context,omitempty"`
+	Context int `json:"context,omitempty"`
 	// Sort is one of (hot, new, top, controversial)
-	Sort string `url:"sort,omitempty"`
+	Sort string `json:"sort,omitempty"`
 	// T is one of (hour, day, week, month, year, all)
-	T string `url:"t,omitempty"`
+	T string `json:"t,omitempty"`
 	// Type is one of (links, comments)
-	Type string `url:"type,omitempty"`
+	Type string `json:"type,omitempty"`
 	// Username is the name of an existing user
-	Username string `url:"username,omitempty"`
+	Username string `json:"username,omitempty"`
 }
 
 // ListingWikiOptions is
@@ -703,5 +799,5 @@ type ListingUserOptions struct {
 type ListingWikiOptions struct {
 	ListingOptions
 	// Page is the name of an existing wiki page
-	Page string `url:"page"`
+	Page string `json:"page"`
 }
