@@ -84,7 +84,6 @@ type Client struct {
 	Message        *MessageService
 	Moderation     *ModerationService
 	Multi          *MultiService
-	Stream         *StreamService
 	Subreddit      *SubredditService
 	User           *UserService
 	Widget         *WidgetService
@@ -117,7 +116,6 @@ func newClient() *Client {
 	client.Message = &MessageService{client: client}
 	client.Moderation = &ModerationService{client: client}
 	client.Multi = &MultiService{client: client}
-	client.Stream = &StreamService{client: client}
 	client.Subreddit = &SubredditService{client: client}
 	client.User = &UserService{client: client}
 	client.Widget = &WidgetService{client: client}

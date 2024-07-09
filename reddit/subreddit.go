@@ -19,27 +19,27 @@ type rootSubredditNames struct {
 	Names []string `json:"names,omitempty"`
 }
 
-// Relationship holds information about a relationship (friend/blocked).
-type Relationship struct {
-	ID      string     `json:"rel_id,omitempty"`
-	User    string     `json:"name,omitempty"`
-	UserID  string     `json:"id,omitempty"`
-	Created *Timestamp `json:"date,omitempty"`
-}
-
-// Moderator is a user who moderates a subreddit.
-type Moderator struct {
-	*Relationship
-	Permissions []string `json:"mod_permissions"`
-}
-
-// Ban represents a banned relationship.
-type Ban struct {
-	*Relationship
-	// nil means the ban is permanent
-	DaysLeft *int   `json:"days_left"`
-	Note     string `json:"note,omitempty"`
-}
+// // Relationship holds information about a relationship (friend/blocked).
+// type Relationship struct {
+// 	ID      string     `json:"rel_id,omitempty"`
+// 	User    string     `json:"name,omitempty"`
+// 	UserID  string     `json:"id,omitempty"`
+// 	Created *Timestamp `json:"date,omitempty"`
+// }
+//
+// // Moderator is a user who moderates a subreddit.
+// type Moderator struct {
+// 	*Relationship
+// 	Permissions []string `json:"mod_permissions"`
+// }
+//
+// // Ban represents a banned relationship.
+// type Ban struct {
+// 	*Relationship
+// 	// nil means the ban is permanent
+// 	DaysLeft *int   `json:"days_left"`
+// 	Note     string `json:"note,omitempty"`
+// }
 
 /**
 SUBREDDIT CONSTANTS FOR ADMIN OPTIONS
@@ -171,7 +171,7 @@ type SubredditAdminOptions struct {
 	SR                              string             `json:"sr"` // full-name of a thing If sr is specified, the request will attempt to modify the specified subreddit. If not, a subreddit with name "name" will be created.
 	SubmitLinkLabel                 string             `json:"submit_link_label"`
 	SubmitText                      string             `json:"submit_text"`
-	SubmitTextLabel                 string             `json:"submit_text_label"` // No longer than 60 characters
+	SubmitTextLabel                 [60]rune           `json:"submit_text_label"` // No longer than 60 characters
 	SubredditDiscoverySettings      struct {
 		DisabledDiscoveryTypes []SubredditDiscoveryType `json:"disabled_discovery_types"`
 	} `json:"subreddit_discovery_settings"`
@@ -200,115 +200,135 @@ const (
 
 // GetAboutWhere gets a subreddit by name .
 func (s *SubredditService) GetAboutWhere(ctx context.Context, subreddit string, w SubredditAboutWhere, opts *ListingSubredditOptions) (*Listing, *http.Response, error) {
-	if subreddit == "" {
-		return nil, nil, &InternalError{"subreddit cannot be empty"}
-	}
 	path := fmt.Sprintf("r/%s/about/%s", subreddit, w)
 	return s.client.getListing(ctx, path, opts)
 }
 
-// DeleteSubredditBanner Remove the subreddit's custom mobile banner.
-func (s *SubredditService) DeleteSubredditBanner(ctx context.Context, subreddit string) (*http.Response, error) {
+// PostDeleteSubredditBanner Remove the subreddit's custom mobile banner.
+// See also: /api/upload_sr_img.
+func (s *SubredditService) PostDeleteSubredditBanner(ctx context.Context, modHash, subreddit string) (*http.Response, error) {
+	data := struct {
+		APIType string `json:"api_type"`
+	}{APIType: "json"}
+
 	path := fmt.Sprintf("r/%s/api/delete_sr_banner", subreddit)
 
-	form := url.Values{}
-	form.Set("api_type", "json") // TODO MODHASH
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+	req.Header.Set("X-Modhash", modHash)
 
-	return s.client.PostURL(ctx, path, []byte(form.Encode()))
+	return s.client.Do(ctx, req, nil)
 }
 
-// DeleteSubredditHeader Remove the subreddit's custom header image.
+// PostDeleteSubredditHeader Remove the subreddit's custom header image.
 // The sitewide-default header image will be shown again after this call.
-func (s *SubredditService) DeleteSubredditHeader(ctx context.Context, subreddit string) (*http.Response, error) {
+// See also: /api/upload_sr_img.
+func (s *SubredditService) PostDeleteSubredditHeader(ctx context.Context, modHash, subreddit string) (*http.Response, error) {
+	data := struct {
+		APIType string `json:"api_type"`
+	}{APIType: "json"}
+
 	path := fmt.Sprintf("r/%s/api/delete_sr_header", subreddit)
 
-	form := url.Values{}
-	form.Set("api_type", "json") // TODO MODHASH
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+	req.Header.Set("X-Modhash", modHash)
 
-	return s.client.PostURL(ctx, path, []byte(form.Encode()))
+	return s.client.Do(ctx, req, nil)
 }
 
 // DeleteSubredditIcon Remove the subreddit's custom mobile icon.
-func (s *SubredditService) DeleteSubredditIcon(ctx context.Context, subreddit string) (*http.Response, error) {
+// See also: /api/upload_sr_img.
+func (s *SubredditService) DeleteSubredditIcon(ctx context.Context, modHash, subreddit string) (*http.Response, error) {
+	data := struct {
+		APIType string `json:"api_type"`
+	}{APIType: "json"}
+
 	path := fmt.Sprintf("r/%s/api/delete_sr_icon", subreddit)
 
-	form := url.Values{}
-	form.Set("api_type", "json") // TODO MODHASH
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+	req.Header.Set("X-Modhash", modHash)
 
-	return s.client.PostURL(ctx, path, []byte(form.Encode()))
+	return s.client.Do(ctx, req, nil)
 }
 
-// DeleteSubredditImage Remove an image from the subreddit's custom image set.
+// PostDeleteSubredditImage Remove an image from the subreddit's custom image set.
 // The image will no longer count against the subreddit's image limit.
 // However, the actual image data may still be accessible for an unspecified amount of time.
 // If the image is currently referenced by the subreddit's stylesheet, that stylesheet will no longer validate and won't be editable until the image reference is removed.
-func (s *SubredditService) DeleteSubredditImage(ctx context.Context, subreddit, imageName string) (*http.Response, error) {
+// See also: /api/upload_sr_img.
+func (s *SubredditService) PostDeleteSubredditImage(ctx context.Context, modHash, subreddit, imageName string) (*http.Response, error) {
+	data := struct {
+		APIType string `json:"api_type"`
+		IMGName string `json:"img_name"`
+	}{APIType: "json", IMGName: imageName}
+
 	path := fmt.Sprintf("r/%s/api/delete_sr_img", subreddit)
 
-	form := url.Values{}
-	form.Set("api_type", "json") // TODO MODHASH
-	form.Set("img_name", imageName)
+	req, err := s.client.NewJSONRequest(http.MethodPost, path, data)
+	if err != nil {
+		return nil, &InternalError{Message: err.Error()}
+	}
+	req.Header.Set("X-Modhash", modHash)
 
-	return s.client.PostURL(ctx, path, []byte(form.Encode()))
+	return s.client.Do(ctx, req, nil)
 }
 
 type SubredditSearchOptions struct {
-	Exact                 bool   `url:"exact"`
-	IncludeOver18         bool   `url:"include_over_18"`
-	IncludeUnadvertisable bool   `url:"include_unadvertisable"`
-	Query                 string `url:"query"`
-	SearchQueryID         string `url:"search_query_id"`
-	TypeaheadActive       bool   `url:"typeahead_active"`
+	Exact                 bool
+	IncludeOver18         bool
+	IncludeUnadvertisable bool
+	Query                 [50]byte // a string up to 50 characters long, consisting of printable characters.
+	SearchQueryID         string   // a uuid
+	TypeaheadActive       *bool
 }
 
-// SearchNames List subreddit names that begin with a query string.
+func (opts *SubredditSearchOptions) Params() url.Values {
+	result := url.Values{}
+
+	return result
+}
+
+// GetSearchSubredditNames List subreddit names that begin with a query string.
 // Subreddits whose names begin with query will be returned.
 // If include_over_18 is false, subreddits with over-18 content restrictions will be filtered from the results.
 // If include_unadvertisable is False, subreddits that have hide_ads set to True or are on the anti_ads_subreddits list will be filtered.
 // If exact is true, only an exact match will be returned.
 // Exact matches are inclusive of over_18 subreddits, but not hide_ad subreddits when include_unadvertisable is False.
-func (s *SubredditService) SearchNames(ctx context.Context, opts *SubredditSearchOptions) ([]string, *http.Response, error) {
-	path, err := addOptions("api/search_reddit_names", opts)
-	if err != nil {
-		return nil, nil, err
-	}
+func (s *SubredditService) GetSearchSubredditNames(ctx context.Context, opts *SubredditSearchOptions) (*http.Response, error) {
+	path := "api/search_reddit_names?" + opts.Params().Encode()
 
 	req, err := s.client.NewRequest(http.MethodGet, path, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
 
-	root := new(rootSubredditNames)
-	resp, err := s.client.Do(ctx, req, root)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return root.Names, resp, nil
+	return s.client.Do(ctx, req, nil)
 }
 
-// SearchSubreddits searches for subreddits beginning with the query provided.
+// GetSearchSubreddits searches for subreddits beginning with the query provided.
 // List subreddits that begin with a query string.
 // Subreddits whose names begin with query will be returned.
 // If include_over_18 is false, subreddits with over-18 content restrictions will be filtered from the results.
 // If include_unadvertisable is False, subreddits that have hide_ads set to True or are on the anti_ads_subreddits list will be filtered.
 // If exact is true, only an exact match will be returned.
 // Exact matches are inclusive of over_18 subreddits, but not hide_ad subreddits when include_unadvertisable is False.
-func (s *SubredditService) SearchSubreddits(ctx context.Context, opts *SubredditSearchOptions) ([]string, *http.Response, error) {
-	path, err := addOptions("api/search_subreddits", opts)
+func (s *SubredditService) GetSearchSubreddits(ctx context.Context, opts *SubredditSearchOptions) (*http.Response, error) {
+	path := "api/search_subreddits?" + opts.Params().Encode()
 
 	req, err := s.client.NewRequest(http.MethodGet, path, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, &InternalError{Message: err.Error()}
 	}
 
-	root := new(rootSubredditNames)
-	resp, err := s.client.Do(ctx, req, root)
-	if err != nil {
-		return nil, resp, err
-	}
-
-	return root.Names, resp, nil
+	return s.client.Do(ctx, req, nil)
 }
 
 // PostSiteAdmin Create or configure a subreddit.
@@ -353,9 +373,9 @@ func (s *SubredditService) GetSubmitText(ctx context.Context, subreddit string) 
 }
 
 type SubredditAutocompleteOptions struct {
-	IncludeOver18   bool   `json:"include_over_18"`
-	IncludeProfiles bool   `json:"include_profiles"`
-	Query           string `json:"query"` // a string up to 25 characters long, consisting of printable characters.
+	IncludeOver18   bool     `json:"include_over_18"`
+	IncludeProfiles bool     `json:"include_profiles"`
+	Query           [25]byte `json:"query"` // a string up to 25 characters long, consisting of printable characters.
 }
 
 // GetSubredditAutocomplete returns a list of subreddits and data for subreddits whose names start with 'query'.
@@ -372,12 +392,12 @@ func (s *SubredditService) GetSubredditAutocomplete(ctx context.Context, opts *S
 }
 
 type SubredditAutocompleteV2Options struct {
-	IncludeOver18   bool   `json:"include_over_18"`
-	IncludeProfiles bool   `json:"include_profiles"`
-	Limit           int    `json:"limit,omitempty"` // an integer between 1 and 10 (default: 5)
-	Query           string `json:"query"`           // a string up to 25 characters long, consisting of printable characters.
-	SearchQueryID   string `json:"search_query_id"` // a uuid
-	TypeaheadActive bool   `json:"typeahead_active,omitempty"`
+	IncludeOver18   bool     `json:"include_over_18"`
+	IncludeProfiles bool     `json:"include_profiles"`
+	Limit           int      `json:"limit,omitempty"` // an integer between 1 and 10 (default: 5)
+	Query           [25]byte `json:"query"`           // a string up to 25 characters long, consisting of printable characters.
+	SearchQueryID   string   `json:"search_query_id"` // a uuid
+	TypeaheadActive bool     `json:"typeahead_active,omitempty"`
 }
 
 func (s *SubredditService) GetSubredditAutocompleteV2(ctx context.Context, opts *SubredditAutocompleteV2Options) (*http.Response, error) {
@@ -401,7 +421,7 @@ const (
 type SubredditStylesheetOptions struct {
 	APIType            string          `json:"api_type"` // Usually always "JSON"
 	OP                 SubredditOPType `json:"op"`
-	Reason             string          `json:"reason"`              // a string up to 256 characters long, consisting of printable characters.
+	Reason             [256]byte       `json:"reason"`              // a string up to 256 characters long, consisting of printable characters.
 	StylesheetContents string          `json:"stylesheet_contents"` // the new stylesheet content
 }
 
@@ -646,7 +666,7 @@ func (s *SubredditService) GetMineWhere(ctx context.Context, where SubredditsMin
 	return s.client.getListing(ctx, path, opts)
 }
 
-// GetSubredditsSearch search subreddits by title and description.
+// GetSubredditsSearch search subreddits by title and description. From: https://www.reddit.com/dev/api/#section_search
 func (s *SubredditService) GetSubredditsSearch(ctx context.Context, opts *ListingSubredditOptions) (*Listing, *http.Response, error) {
 	return s.client.getListing(ctx, "subreddits/search", opts)
 }

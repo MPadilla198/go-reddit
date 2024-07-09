@@ -4,7 +4,7 @@ import "net/http"
 
 // cloneRequest returns a clone of the provided *http.Request.
 // The clone is a shallow copy of the struct and its Header map,
-// since we'll only be modify the headers.
+// since we'll only be modifying the headers.
 // Per the specification of http.RoundTripper, we should not directly modify a request.
 func cloneRequest(r *http.Request) *http.Request {
 	r2 := new(http.Request)
