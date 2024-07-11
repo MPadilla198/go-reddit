@@ -142,7 +142,7 @@ func (s *WikiService) PostSettingsPage(ctx context.Context, modHash, subreddit, 
 // GetPage Return the content of a wiki page
 // If v is given, show the wiki page as it was at that version If both v and v2 are given, show a diff of the two
 func (s *WikiService) GetPage(ctx context.Context, subreddit, page, v, v2 string) (*http.Response, error) {
-	path := fmt.Sprintf("r/%s/wiki/%s?v=%d&v2=%t", subreddit, page, v, v2)
+	path := fmt.Sprintf("r/%s/wiki/%s?v=%s&v2=%s", subreddit, page, v, v2)
 
 	req, err := s.client.NewJSONRequest(http.MethodGet, path, nil)
 	if err != nil {

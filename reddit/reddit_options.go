@@ -2,6 +2,7 @@ package reddit
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -34,11 +35,11 @@ func WithUserAgent(ua string) Opt {
 // WithBaseURL sets the base URL for the client to make requests to.
 func WithBaseURL(u string) Opt {
 	return func(c *Client) error {
-		url, err := url.Parse(u)
+		URL, err := url.Parse(u)
 		if err != nil {
 			return err
 		}
-		c.BaseURL = url
+		c.BaseURL = URL
 		return nil
 	}
 }
@@ -46,11 +47,11 @@ func WithBaseURL(u string) Opt {
 // WithTokenURL sets the url used to get access tokens.
 func WithTokenURL(u string) Opt {
 	return func(c *Client) error {
-		url, err := url.Parse(u)
+		URL, err := url.Parse(u)
 		if err != nil {
 			return err
 		}
-		c.TokenURL = url
+		c.TokenURL = URL
 		return nil
 	}
 }
@@ -61,7 +62,12 @@ func WithTokenURL(u string) Opt {
 // GO_REDDIT_CLIENT_SECRET to set the client's secret.
 // GO_REDDIT_CLIENT_USERNAME to set the client's username.
 // GO_REDDIT_CLIENT_PASSWORD to set the client's password.
+// GO_REDDIT_PLATFORM is the OS platform your code is intended to run on
+// GO_REDDIT_PROGRAM_VERSION is
 func FromEnv(c *Client) error {
+	var platform string
+	var programVersion string
+
 	if v := os.Getenv("GO_REDDIT_CLIENT_ID"); v != "" {
 		c.ID = v
 	}
@@ -74,5 +80,13 @@ func FromEnv(c *Client) error {
 	if v := os.Getenv("GO_REDDIT_CLIENT_PASSWORD"); v != "" {
 		c.Password = v
 	}
+	if v := os.Getenv("GO_REDDIT_PLATFORM"); v != "" {
+		platform = v
+	}
+	if v := os.Getenv("GO_REDDIT_PROGRAM_VERSION"); v != "" {
+		programVersion = v
+	}
+	c.userAgent = fmt.Sprintf("%s:%s:%s (by /u/%s)", platform, c.ID, programVersion, c.Username)
+
 	return nil
 }

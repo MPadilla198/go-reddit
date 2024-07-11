@@ -14,6 +14,10 @@ type AccountService struct {
 	client *Client
 }
 
+const (
+	accountGetIdentityPath = "api/v1/me"
+)
+
 // SubredditKarma holds user karma data for the subreddit.
 type SubredditKarma struct {
 	Subreddit    string `json:"sr"`
@@ -133,16 +137,9 @@ type Preferences struct {
 	WhatsappEnabled                       bool   `json:"whatsapp_enabled,omitempty"`
 }
 
-type rootRelationshipList struct {
-	Kind string `json:"kind,omitempty"`
-	Data struct {
-		Relationships []Relationship `json:"children"`
-	} `json:"data"`
-}
-
 // GetIdentity returns some general information about your account.
 func (s *AccountService) GetIdentity(ctx context.Context) (*Account, *http.Response, error) {
-	path := "api/v1/me"
+	path := accountGetIdentityPath
 
 	req, err := s.client.NewRequest(http.MethodGet, path, nil)
 	if err != nil {

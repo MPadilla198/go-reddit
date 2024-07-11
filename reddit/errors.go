@@ -34,10 +34,13 @@ type ResponseError struct {
 }
 
 func (r *ResponseError) Error() string {
-	return fmt.Sprintf(
-		"ResponseError: %s %s (STATUS: %d) %s",
-		r.Response.Request.Method, r.Response.Request.URL, r.Response.StatusCode, r.Message,
-	)
+	if r.Response != nil {
+		return fmt.Sprintf(
+			"ResponseError: %s %s (STATUS: %d) %s",
+			r.Response.Request.Method, r.Response.Request.URL, r.Response.StatusCode, r.Message,
+		)
+	}
+	return fmt.Sprintf("ResponseError: %s", r.Message)
 }
 
 // RateLimitError occurs when the client is sending too many requests to Reddit in a given time frame.

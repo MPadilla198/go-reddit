@@ -32,9 +32,9 @@ const (
 	headerAccept      = "Accept"
 	headerUserAgent   = "User-Agent"
 
-	headerRateLimitRemaining = "x-ratelimit-remaining"
-	headerRateLimitUsed      = "x-ratelimit-used"
-	headerRateLimitReset     = "x-ratelimit-reset"
+	headerRateLimitRemaining = "x-ratelimit-remaining" // Approximate number of requests left to use
+	headerRateLimitUsed      = "x-ratelimit-used"      // Approximate number of requests used in this period
+	headerRateLimitReset     = "x-ratelimit-reset"     // Approximate number of seconds to end of period
 )
 
 var defaultClient, _ = NewReadonlyClient()
@@ -356,9 +356,7 @@ func (c *Client) PostURL(ctx context.Context, path string, form []byte) (*http.R
 }
 
 func (c *Client) checkRateLimitBeforeDo(req *http.Request) *RateLimitError {
-	c.rateMu.Lock()
 	rate := c.rate
-	c.rateMu.Unlock()
 
 	if !rate.Reset.IsZero() && rate.Remaining == 0 && time.Now().Before(rate.Reset) {
 		// Create a fake 429 response.
